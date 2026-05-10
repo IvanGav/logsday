@@ -1,12 +1,108 @@
+:root {
+    --page-bg: #ffffff;
+    --primary-bg: #c5d6e8;
+    --secondary-bg: #d9d9d9;
+    --text-main: #1b2026;
+    --text-muted: #5f6469;
+    --border-color: #dee2e6;
+
+    --accent: #73ff84;
+    --accent-hover: #21b43c;
+
+    --link: var(--text-muted);
+    --link-hover: #6078ff;
+
+    --radius: 8px;
+    --gap: 15px;
+}
+
+/* nav */
 .navbar {
     display: flex;
-    background-color: silver;
+    background-color: var(--accent);
     justify-content: flex-start;
     align-items: center;
+    margin-bottom: 10px;
 }
 .navitem {
     padding-left: 1%;
     padding-right: 1%;
     padding-top: 2px;
     padding-bottom: 2px;
+    text-decoration: none;
+    color: var(--text-main);
+}
+.navitem:hover {
+    background-color: var(--accent-hover);
+}
+
+/* generic items */
+
+/* will try to be on the right (by taking up all remaining horizontal space */
+.date {
+    margin-left: auto;
+    font-weight: normal;
+    color: var(--text-muted);
+}
+
+.link {
+    text-decoration: none;
+    color: var(--link);
+}
+.link:hover {
+    color: var(--link-hover);
+}
+
+.text { /* maybe also make p do this */
+    color: var(--text-main);
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+/* project banner */
+.project-banner {
+    font-size: 2em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 15px 25px;
+    border-bottom: 2px solid var(--border-color);
+    
+}
+
+.project-thumbnail {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+}
+
+/* update/log listings */
+
+.update-listing {
+    padding: 5px;
+    gap: 10px;
+    align-items: center;
+    display: flex;
+    background-color: var(--secondary-bg);
+    margin-top: 10px;
+}
+
+.log-listing {
+    padding: 5px;
+    gap: 10px;
+    align-items: center;
+    display: flex;
+    background-color: var(--primary-bg);
+    margin-top: 10px;
+}
+
+/* these might not need to even exist, but... */
+
+.log-listing-thumbnail {
+    border-radius: var(--radius);
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
 }

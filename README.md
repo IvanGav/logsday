@@ -36,4 +36,26 @@ You will be able to upload a devlog exactly once a week.
 - [Askama docs](https://askama.rs/en/stable/template_syntax.html#template-inheritance), [Askama overview](https://blog.guillaume-gomez.fr/articles/2025-03-19+Askama+and+Rinja+merge)
 
 ## SQLite Tables
-- `CREATE TABLE users (uid int PRIMARY KEY, name varchar(64) NOT NULL, password varchar(64) NOT NULL);`
+```
+CREATE TABLE users (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL
+);
+
+CREATE TABLE projects (
+    pid INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(uid) ON DELETE CASCADE
+);
+
+CREATE TABLE logs (
+    lid INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(pid) ON DELETE CASCADE
+);
+```

@@ -6,22 +6,16 @@ use axum::{
     http::{header, HeaderMap},
     Form,
 };
-
 use axum::extract::{Path, Query, State};
 use std::collections::HashMap;
 use tower_http::services::ServeDir;
-
 use sqlx::sqlite::SqlitePool;
-
 use serde::Deserialize;
 
-struct Log {
-    title: String,
-    content: String,
+#[derive(Clone)]
+struct AppState {
+    db: SqlitePool,
 }
-
-// apparently need to set env var `DATABASE_URL=sqlite:sqlite.db`
-// if the above doesn't work, maybe try `DATABASE_URL="~/logsday/sqlite.db"`
 
 #[tokio::main]
 async fn main() {
@@ -34,11 +28,9 @@ async fn main() {
     let app = Router::new()
         .route("/", get(landing))
         .route("/conman", get(conman))
-        .route("/{user_uid}/get", get(testing))
-        .route("/logs/loglist", get(bit_loglist))
-        .route("/favicon.ico", get(favicon))
-        .route("/users", get(list_users))
+        .route("/loglist", get(bit_loglist))
         .route("/login", get(login_form).post(login_handler))
+        .route("/favicon.ico", get(favicon))
         .nest_service("/static", ServeDir::new("public"))
         .with_state(state);
 
@@ -46,15 +38,16 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-#[derive(Clone)]
-struct AppState {
-    db: SqlitePool,
-}
-
 #[derive(Deserialize)]
 struct LoginSubmission {
     username: String,
     password: String,
+}
+
+// TODO remove later, this is just for testing
+struct Log {
+    title: String,
+    content: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -64,14 +57,21 @@ struct User {
     password: String,
 }
 
-async fn list_users(State(state): State<AppState>) -> String {
-    // sqlx::query_as!(...) can be used for compile time checks on queries.. but ...
-    let users: Vec<User> = sqlx::query_as("SELECT uid, name, password FROM users")
-        .fetch_all(&state.db)
-        .await
-        .unwrap();
+#[derive(Debug, sqlx::FromRow)]
+struct LogEntry {
+    uid: i64,
+    project_uid: i64,
+    log_type: bool, // if true, it's a log; if false, it's an update; it's a stupid system, I know, but now i don't have to deal with sqlx enums
+    title: String,
+    content: String,
+}
 
-    format!("Found {} users. First user: {:?}", users.len(), users.get(0))
+#[derive(Debug, sqlx::FromRow)]
+struct LogHeader {
+    uid: i64,
+    project_uid: i64,
+    log_type: bool, // if true, it's a log; if false, it's an update; it's a stupid system, I know, but now i don't have to deal with sqlx enums
+    title: String,
 }
 
 async fn login_handler(
@@ -89,12 +89,6 @@ async fn login_handler(
     }
 }
 
-// Query:
-// http://localhost:3000/12345/get?test1=hello,test2=world
-// params = test1:hello,test2=world,
-// Path:
-// https://localhost:3000/12345/get
-// user_id = 12345
 async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): Path<u32>) -> String {
     let mut a: String = user_id.to_string();
     a.push('\t');
@@ -107,31 +101,27 @@ async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): P
     return a;
 }
 
+// Page Templates
+
 #[derive(Template)]
 #[template(path = "page/landing.html")]
 struct LandingTemplate;
 
 #[derive(Template)]
-#[template(path = "page/conman.html")]
-struct ConmanTemplate;
-
-#[derive(Template)]
-#[template(path = "bits/loglist.html")]
-struct BitLoglistTemplate {
-    logs: Vec<Log>,
-}
-
-#[derive(Template)]
-#[template(path = "bits/login_form.html")]
-struct BitLoginTemplate;
+#[template(path = "prototype/base.html")]
+struct PrototypeTemplate;
 
 async fn landing() -> Html<String> {
-    let render = LandingTemplate.render();
+    let render = PrototypeTemplate.render(); //LandingTemplate.render();
     if let Ok(render) = render {
         return Html(render);
     }
     return Html("Something went wrong".to_string());
 }
+
+#[derive(Template)]
+#[template(path = "page/conman.html")]
+struct ConmanTemplate;
 
 async fn conman() -> Html<String> {
     let render = ConmanTemplate.render();
@@ -139,6 +129,14 @@ async fn conman() -> Html<String> {
         return Html(render);
     }
     return Html("Something went wrong".to_string());
+}
+
+// Bits Templates
+
+#[derive(Template)]
+#[template(path = "bits/loglist.html")]
+struct BitLoglistTemplate {
+    logs: Vec<Log>,
 }
 
 async fn bit_loglist() -> Html<String> {
@@ -149,6 +147,10 @@ async fn bit_loglist() -> Html<String> {
     return Html("Something went wrong".to_string());
 }
 
+#[derive(Template)]
+#[template(path = "bits/login_form.html")]
+struct BitLoginTemplate;
+
 async fn login_form() -> Html<String> {
     let render = BitLoginTemplate.render();
     if let Ok(render) = render {
@@ -157,11 +159,35 @@ async fn login_form() -> Html<String> {
     return Html("Something went wrong".to_string());
 }
 
+// Other Handlers, Without Templates
+
 async fn favicon() -> impl IntoResponse {
-    println!("favicon requested");
     // Bake the file into the binary at compile time - pretty cool. Did you know I like Rust?
     let bytes = include_bytes!("../public/favicon.ico");
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, "image/x-icon".parse().unwrap());
     (headers, bytes)
 }
+
+// async fn expand_update(
+//     State(state): State<AppState>,
+//     Path(update_id): Path<i64>, // Axum parses this automatically
+// ) -> Html<String> {
+//     let update = sqlx::query_as::<_, LogEntry>("SELECT * FROM updates WHERE uid = ?")
+//         .bind(update_id)
+//         .fetch_one(&state.db)
+//         .await
+//         .unwrap();
+
+//     // Return the expanded fragment
+//     Html(format!("<div class='expanded'>{}</div>", update.content))
+// }
+
+// async fn get_logs_of_project() -> {
+//     let project = sqlx::query_as!(Project, "SELECT * FROM projects WHERE pid = ?", pid)
+//         .fetch_one(&state.db)
+//         .await?;
+//     let logs = sqlx::query_as!(Log, "SELECT * FROM logs WHERE project_id = ? ORDER BY created_at DESC", pid)
+//         .fetch_all(&state.db)
+//         .await?;
+// }
