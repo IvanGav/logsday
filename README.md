@@ -6,10 +6,12 @@ You will be able to upload a devlog exactly once a week.
 
 ## Structure
 
+- To run the server, `cargo run`
 - Entry point for the server is `src/main.rs`
 - `Askama`'s templates (`#[template(path = "index.html")]`) live in `./templates` directory
   - Note that `Askama`'s templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
 - `Axum`'s Router uses `nest_service("/static", ServeDir::new("public"))` to map requests to `/static` to take from `./public` directory. That way, any requests to CSS or JS will take from there.
+- The database is `./sqlite.db`. Before running you might need to set an env variable `DATABASE_URL="sqlite:sqlite.db"` or `DATABASE_URL="~/logsday/sqlite.db"`
 
 ## Tech (+ yapping)
 
@@ -32,4 +34,6 @@ You will be able to upload a devlog exactly once a week.
 - [SortableKS](https://sortablejs.github.io/Sortable/)
 - [htmx](https://htmx.org/) ([docs](https://htmx.org/docs/))
 - [Askama docs](https://askama.rs/en/stable/template_syntax.html#template-inheritance), [Askama overview](https://blog.guillaume-gomez.fr/articles/2025-03-19+Askama+and+Rinja+merge)
-- 
+
+## SQLite Tables
+- `CREATE TABLE users (uid int PRIMARY KEY, name varchar(64) NOT NULL, password varchar(64) NOT NULL);`

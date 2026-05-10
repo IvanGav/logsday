@@ -42,7 +42,6 @@ async fn main() {
         .nest_service("/static", ServeDir::new("public"))
         .with_state(state);
 
-    // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
@@ -55,7 +54,7 @@ struct AppState {
 #[derive(Deserialize)]
 struct LoginSubmission {
     username: String,
-    password: String, // Reminder: Hash these in a real app!
+    password: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -85,15 +84,8 @@ async fn login_handler(
         .await
         .unwrap();
     match user {
-        Some(u) if u.password == payload.password => {
-            // Success: Return a welcome fragment
-            Html(format!("<p>Welcome back, {}!</p>", u.name))
-        }
-        _ => {
-            // Failure: Return the form again with an error message
-            // In a real app, you'd render an Askama template here
-            Html("<p>Invalid username or password.</p>".to_string())
-        }
+        Some(u) if u.password == payload.password => { Html(format!("<p>Welcome back, {}!</p>", u.name)) }
+        _ => { Html("<p>Invalid username or password.</p>".to_string()) }
     }
 }
 
@@ -173,12 +165,3 @@ async fn favicon() -> impl IntoResponse {
     headers.insert(header::CONTENT_TYPE, "image/x-icon".parse().unwrap());
     (headers, bytes)
 }
-
-
-/*
-CREATE TABLE users (
-uid int PRIMARY KEY,
-name varchar(64) NOT NULL,
-password varchar(64) NOT NULL
-);
-*/
