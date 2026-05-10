@@ -1,0 +1,60 @@
+
+.state-0 {
+    background-color: #00000040;
+}
+.state-1 {
+    --hue: 48;
+    background: radial-gradient(hsl(var(--hue), 72%, 80%), hsl(var(--hue), 72%, 56%));
+    box-shadow: 0 0 10px hsl(var(--hue), 72%, 56%);
+}
+.state-2 {
+    --hue: 300;
+    background: radial-gradient(hsl(var(--hue), 72%, 80%), hsl(var(--hue), 72%, 56%));
+    box-shadow: 0 0 10px hsl(var(--hue), 72%, 56%);
+}
+.state-3 {
+    --hue: 100;
+    background: radial-gradient(hsl(var(--hue), 72%, 80%), hsl(var(--hue), 72%, 56%));
+    box-shadow: 0 0 10px hsl(var(--hue), 72%, 56%);
+}
+.state-4 {
+    --hue: 180;
+    background: radial-gradient(hsl(var(--hue), 72%, 80%), hsl(var(--hue), 72%, 56%));
+    box-shadow: 0 0 10px hsl(var(--hue), 72%, 56%);
+}
+
+.pop-out {
+    animation-name: pop-out-anim;
+    animation-duration: 3s;
+    animation-fill-mode: forwards;
+}
+@keyframes pop-out-anim {
+    0% {
+        transform: scale(0);
+    }
+    10% {
+        filter: brightness(110%);
+        transform: scale(1.1);
+    }
+    20% {
+        filter: brightness(110%);
+        transform: scale(1);
+    }
+    100% {
+        filter: brightness(100%);
+    }
+}
+
+.shrink {
+    animation-name: shrink-anim;
+    animation-duration: 0.15s;
+    animation-fill-mode: forwards;
+}
+@keyframes shrink-anim {
+    from {
+        transform: scale(1);
+    }
+    to {
+        transform: scale(0);
+    }
+}

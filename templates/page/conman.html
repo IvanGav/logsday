@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conman's Game of Life</title>
+    <link rel="stylesheet" href="/static/conman/style.css">
+    <link rel="stylesheet" href="/static/conman/button.css">
+    <link rel="stylesheet" href="/static/conman/states.css">
+</head>
+<body>
+    <div>
+        <h1 onclick="switchdev()">Conman's Game of Life</h1>
+    </div>
+    <div id="menu">
+        <div class="buttonContainer" id="genButton">
+            <div class="button" onclick="regenerateBoard()">Regenerate Grid</div>
+        </div>
+        <div class="buttonContainer" id="goButton">
+            <div class="button" onclick="doStep(); startSteps()">Go</div>
+        </div>
+        <div class="buttonContainer" id="stopButton" style="display: none;">
+            <div class="button" onclick="stopSteps()">Stop</div>
+        </div>
+        <div class="buttonContainer" id="stepButton">
+            <div class="button" onclick="doStep()">Step</div>
+        </div>
+        <div class="buttonContainer" id="turboButton">
+            <div class="button" onclick="toggleTurbo()">Toggle Turbo Mode</div>
+        </div>
+        <div class="buttonContainer" id="randButton">
+            <div class="button" onclick="randBoard()">Generate Random Cells</div>
+        </div>
+        <!-- <div class="buttonContainer">
+            <div class="button" onclick="addRandRule()">Add Rule</div>
+        </div> -->
+    </div>
+    <div id="game"></div>
+    <script src="static/conman/apply_rules.js"></script>
+    <script src="static/conman/main.js"></script>
+    <script src="static/conman/dialog_modals.js"></script>
+
+    <!-- i'm not sure if it's best to put them statically or just add them through JS, but they're here for the time being -->
+    <dialog class="dialogModal" id="exportSettings">
+        <h1>Export Settings</h1>
+        <p>Click on the box below and press Ctrl+A to select everything, or press Copy.</p>
+        <input id="exportSettingsOutput" disabled="true"></p> 
+        <div class="buttonPanel">
+            <div class="buttonContainer" id="closeDialogExportButton">
+                <div class="button" onclick="closeDialogExport()">Close</div>
+            </div>
+            <div class="buttonContainer" id="copyExportButton">
+                <div class="button" onclick="copyExport()">Copy</div>
+            </div>
+        </div>
+    </dialog>
+    
+    <dialog class="dialogModal" id="importSettings">
+        <h1>Import Settings</h1>
+        <input id="importSettingsInput" placeholder="Put in settings here" autofocus="false"></input>
+        <div class="buttonPanel">
+            <div class="buttonContainer" id="closeDialogImportButton">
+                <div class="button" onclick="closeDialogImport()">Cancel</div>
+            </div>
+            <div class="buttonContainer" id="importRulesButton">
+                <div class="button" onclick="dialogImportRules()">Import</div>
+            </div>
+        </div>
+    </dialog>
+</body>
+</html>

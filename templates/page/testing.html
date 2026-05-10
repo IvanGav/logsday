@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logsday</title>
+    <link rel="stylesheet" href="static/style.css">
+    <link rel="stylesheet" href="static/button.css">
+    <link rel="stylesheet" href="static/states.css">
+</head>
+<body>
+    <div class="container">
+        <h1>My Devlogs</h1>
+        
+        <button hx-get="/devlogs" hx-target="#log-container">
+            Load This Week's Logs
+        </button>
+
+        <div id="log-container">
+        </div>
+    </div>
+
+    <script src="static/htmx.min.js"></script>
+</body>
+</html>

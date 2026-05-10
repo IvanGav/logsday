@@ -1,0 +1,37 @@
+:root {
+    --hue: 180;
+    --saturation: 15%;
+}
+
+.buttonContainer {
+    position: relative;
+    align-self: center;
+    width: fit-content;
+    height: fit-content;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: hsl(var(--hue), var(--saturation), 25%);
+    margin: 8px;
+}
+.button {
+    display: block;
+    align-self: center;
+    width: fit-content;
+    padding: 8px 16px;
+    background-color: hsl(var(--hue), var(--saturation), 50%);
+    color: white;
+    cursor: pointer;
+    border-radius: 4px;
+    transition:0.1s;
+    transform: translateY(-4px);
+    font-family: sans-serif;
+    font-weight: bold;
+}
+.button:hover {
+    transform: translateY(-6px);
+    filter: brightness(110%);
+}
+.button:active {
+    transform: translateY(0px);
+    filter: brightness(90%);
+}
