@@ -1,0 +1,27 @@
+{% extends "page/base.html" %}
+
+{% block content %}
+    <script>
+        function checkFileSize(input) {
+            const limit = 2 * 1024 * 1024; // 2MB
+            if (input.files[0].size > limit) {
+                alert("This file is too big! Please choose an image under 2MB.");
+                input.value = ""; // Clear the input
+            }
+        }
+    </script>
+
+    <form hx-post="/newproject" hx-encoding="multipart/form-data">
+        <input type="text" name="title" placeholder="Project Title" required>
+        <textarea name="description"></textarea>
+        
+        <input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)">
+        
+        <button type="submit">Create Project</button>
+        <!-- AI suggested garbage below -->
+        <!-- <button type="submit" class="hx-indicator">
+            Create Project
+            <img src="/static/spinner.svg" class="htmx-indicator">
+        </button> -->
+    </form>
+{% endblock %}

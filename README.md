@@ -23,6 +23,7 @@ You will be able to upload a devlog exactly once a week.
   - [SQLx](https://docs.rs/sqlx/latest/sqlx/) is a pretty neat looking library to work with SQL from Rust
 - For video play, `<video>` html tag can be used; libraries and wrappers exist (vlitejs, etc)
 - Also, HLS (HTTP Live Streaming) is a better streaming format; so, look into it later
+- For markdown probably `pulldown-cmark`, looks quite nice. As for JS side, probably either `marked.js` or `markdown-it`.
 
 ## Notes
 
@@ -34,28 +35,36 @@ You will be able to upload a devlog exactly once a week.
 - [SortableKS](https://sortablejs.github.io/Sortable/)
 - [htmx](https://htmx.org/) ([docs](https://htmx.org/docs/))
 - [Askama docs](https://askama.rs/en/stable/template_syntax.html#template-inheritance), [Askama overview](https://blog.guillaume-gomez.fr/articles/2025-03-19+Askama+and+Rinja+merge)
+- [md](https://crates.io/crates/pulldown-cmark)
 
 ## SQLite Tables
-```
+```sql
 CREATE TABLE users (
     uid INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
+    displayname TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL
 );
 
 CREATE TABLE projects (
-    pid INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_uid INTEGER NOT NULL,
     title TEXT NOT NULL,
+    slug TEXT NOT NULL,
     description TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(uid) ON DELETE CASCADE
+    thumbnail_path TEXT NOT NULL,
+    created_on DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 
 CREATE TABLE logs (
-    lid INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_uid INTEGER NOT NULL,
     title TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(pid) ON DELETE CASCADE
+    slug TEXT NOT NULL,
+    content_path TEXT NOT NULL,
+    thumbnail_path TEXT NOT NULL,
+    created_on DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
 ```
