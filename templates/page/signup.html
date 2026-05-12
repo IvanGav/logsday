@@ -1,0 +1,10 @@
+{% extends "page/base.html" %}
+
+{% block content %}
+    <form hx-post="/signup">
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="text" name="displayname" placeholder="Display Name" required>
+        <input type="text" name="password" placeholder="Password" required>
+        <button type="submit">Sign Up</button>
+    </form>
+{% endblock %}

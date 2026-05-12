@@ -1,0 +1,9 @@
+{% extends "page/base.html" %}
+
+{% block content %}
+    <form hx-post="/login">
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="text" name="password" placeholder="Password" required>
+        <button type="submit">Log In</button>
+    </form>
+{% endblock %}

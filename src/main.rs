@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    Form, Router, body::Bytes, http::{HeaderMap, header}, response::{Html, IntoResponse, Redirect}, routing::{get,post}
+    Form, Router, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{get,post}
 };
 use axum::extract::{Path, Query, State, Multipart};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
@@ -10,6 +10,7 @@ use sqlx::sqlite::SqlitePool;
 use serde::Deserialize;
 
 const MAX_THUMBNAIL_SIZE: u32 = 2 * 1024 * 1024;
+// cargo remove axum_typed_multipart if i don't think i need it
 
 #[derive(Clone)]
 struct AppState {
@@ -26,6 +27,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(landing))
+        .route("/signup", get(get_signup).post(post_signup))
+        .route("/login", get(get_login).post(post_login))
         .route("/newproject", get(get_newproject).post(post_newproject))
         .route("/conman", get(get_conman))
         .route("/favicon.ico", get(get_favicon))
@@ -40,18 +43,16 @@ fn generic_error_html() -> Html<String> {
     return Html("Oops, something went wrong... Go touch some logs in the meantime.".to_string());
 }
 
-#[derive(Deserialize)]
-struct LoginSubmission {
-    username: String,
-    password: String,
+fn hx_redirect(route: String, body: String) -> impl IntoResponse {
+    return ([("HX-Redirect", route)], body).into_response();
 }
 
 #[derive(Debug, sqlx::FromRow)]
 struct User {
     uid: i64, // unique
-    displayname: String,
     username: String, // unique
-    password: String, // obviously not going to be stored as plaintext password at some point
+    displayname: String,
+    password: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -75,21 +76,6 @@ struct LogEntry {
     content_path: String,
     thumbnail_path: String,
     // created_on: DateTime,
-}
-
-async fn login_handler(
-    State(state): State<AppState>,
-    Form(payload): Form<LoginSubmission>,
-) -> Html<String> {
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE name = ?")
-        .bind(&payload.username)
-        .fetch_optional(&state.db)
-        .await
-        .unwrap();
-    match user {
-        Some(u) if u.password == payload.password => { Html(format!("<p>Welcome back, {}!</p>", u.displayname)) }
-        _ => { Html("<p>Invalid username or password.</p>".to_string()) }
-    }
 }
 
 async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): Path<u32>) -> String {
@@ -170,72 +156,103 @@ struct NewProjectRequest {
     thumbnail: FieldData<Bytes>,
 }
 
-// cargo remove axum_typed_multipart if i don't think i need it
 async fn post_newproject(data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
-    println!("{} - {} : {}", data.title, data.description, data.thumbnail.contents.len());
-    if let Err(_) = fs::write("DOWNLOADED.jpg", &data.thumbnail.contents) {
-        return "Not Ok";
+    let content_type = &data.thumbnail.metadata.content_type;
+    if let None = content_type { return "Could not get file type".into_response(); }
+    let content_type = content_type.as_ref().unwrap();
+    if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
+
+    println!("-- debug `{}` : `{}` : `{:?}`", data.title, data.description, data.thumbnail.metadata.file_name);
+    if let Err(e) = fs::write("DOWNLOADED.jpg", &data.thumbnail.contents) {
+        return e.to_string().into_response(); // don't actually do this, of course
     }
-    return "Ok";
+
+    return ([("HX-Redirect", "/")], "Redirecting...").into_response(); // HTMX's own force redirect
 }
-// async fn post_newproject(mut multipart: Multipart) -> impl IntoResponse {
-//     let mut error_message: Option<String> = None;
-//     while let Ok(Some(field)) = multipart.next_field().await {
-//         let name = field.name().unwrap();
-//         match name {
-//             "title" => {
-//                 let data = field.text().await.unwrap();
-//                 println!("Title: {}", data);
-//             }
-//             "thumbnail" => {
-//                 let filename = field.file_name().unwrap().to_string();
-//                 let content_type = field.content_type().unwrap_or("unknown");
-//                 match content_type {
-//                     "image/jpeg" | "image/jpg" | "image/png" => { }
-//                     _ => { error_message = Some(format!("Invalid file type: {}", content_type)); }
-//                 }
-//                 let data = field.bytes().await;
-//                 match data {
-//                     Ok(data) => {
-//                         println!("Filename: {}, Size: {}", filename, data.len());
-//                     }
-//                     Err(err) => {
-//                         println!("Error: {:?}", err);
-//                         error_message = Some(format!("thumbnail is too large: max upload size: {}", MAX_THUMBNAIL_SIZE));
-//                         return error_message.unwrap().into_response();
-//                     }
-//                 }
-//             }
-//             _ => {
-//                 println!("Unknown field name: {}", name);
-//             }
-//         }
-//     }
-//     if let Some(error_message) = error_message {
-//         return error_message.into_response();
-//     }
-//     return ([("HX-Redirect", "/")], "Redirecting...").into_response();
-// }
 
-// async fn expand_update(
-//     State(state): State<AppState>,
-//     Path(update_id): Path<i64>, // Axum parses this automatically
-// ) -> Html<String> {
-//     let update = sqlx::query_as::<_, LogEntry>("SELECT * FROM updates WHERE uid = ?")
-//         .bind(update_id)
-//         .fetch_one(&state.db)
-//         .await
-//         .unwrap();
+// Route /signup
+#[derive(Template)]
+#[template(path = "page/signup.html")]
+struct SignupTemplate;
 
-//     // Return the expanded fragment
-//     Html(format!("<div class='expanded'>{}</div>", update.content))
-// }
+async fn get_signup() -> Html<String> {
+    let render = SignupTemplate.render();
+    if let Ok(render) = render {
+        return Html(render);
+    }
+    return generic_error_html();
+}
 
-// async fn get_logs_of_project() -> {
-//     let project = sqlx::query_as!(Project, "SELECT * FROM projects WHERE pid = ?", pid)
-//         .fetch_one(&state.db)
-//         .await?;
-//     let logs = sqlx::query_as!(Log, "SELECT * FROM logs WHERE project_id = ? ORDER BY created_at DESC", pid)
-//         .fetch_all(&state.db)
-//         .await?;
-// }
+#[derive(Deserialize)]
+struct SignupSubmission {
+    username: String,
+    displayname: String,
+    password: String,
+}
+
+async fn post_signup(
+    State(state): State<AppState>,
+    Form(form): Form<SignupSubmission>,
+) -> impl IntoResponse {
+    let result = sqlx::query(
+        "INSERT INTO users (username, displayname, password) VALUES (?, ?, ?)",
+    )
+        .bind(&form.username)
+        .bind(&form.displayname)
+        .bind(&form.password) // plaintext password go brrrr
+        .execute(&state.db)
+        .await;
+
+    match result {
+        Ok(_) => {
+            if let Ok(_) = tokio::fs::create_dir_all(format!("storage/users/{}", form.username)).await {
+                return hx_redirect("/".into(), "Account created.".into()).into_response();
+            } else {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create user directory").into_response();
+            }
+        }
+        Err(e) => {
+            if let Some(db_err) = e.as_database_error() {
+                if db_err.is_unique_violation() {
+                    return (StatusCode::BAD_REQUEST, "Username already taken").into_response();
+                }
+            }
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database fail").into_response();
+        }
+    }
+}
+
+// Route /login
+#[derive(Template)]
+#[template(path = "page/login.html")]
+struct LoginTemplate;
+
+async fn get_login() -> Html<String> {
+    let render = LoginTemplate.render();
+    if let Ok(render) = render {
+        return Html(render);
+    }
+    return generic_error_html();
+}
+
+#[derive(Deserialize)]
+struct LoginSubmission {
+    username: String,
+    password: String,
+}
+
+async fn post_login(
+    State(state): State<AppState>,
+    Form(form): Form<LoginSubmission>,
+) -> impl IntoResponse {
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
+        .bind(&form.username)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap();
+
+    match user {
+        Some(u) if u.password == form.password => { return hx_redirect("/".into(), "Success".into()).into_response(); }
+        _ => { return "Incorrect Username of Password".into_response(); }
+    };
+}

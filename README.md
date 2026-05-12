@@ -41,8 +41,8 @@ You will be able to upload a devlog exactly once a week.
 ```sql
 CREATE TABLE users (
     uid INTEGER PRIMARY KEY AUTOINCREMENT,
-    displayname TEXT NOT NULL,
     username TEXT NOT NULL UNIQUE,
+    displayname TEXT NOT NULL,
     password TEXT NOT NULL
 );
 
