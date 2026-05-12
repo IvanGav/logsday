@@ -1,0 +1,6 @@
+{% extends "page/base.html" %}
+
+{% block content %}
+    <h2>Your Projects</h2>
+    <div id="projects" hx-get="/my/projects" hx-trigger="load"></div>
+{% endblock %}

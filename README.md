@@ -67,4 +67,6 @@ CREATE TABLE logs (
     created_on DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
+
+CREATE INDEX idx_projects_user_slug ON projects (user_uid, slug);
 ```
