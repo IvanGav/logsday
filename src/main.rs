@@ -40,10 +40,12 @@ async fn main() {
         .route("/login", get(get_login).post(post_login))
         .route("/my", get(get_dashboard))
         .route("/my/projects", get(get_my_projects))
+        .route("/my/p/{project_slug}", get(get_my_project))
         .route("/newproject", get(get_newproject).post(post_newproject))
         .route("/conman", get(get_conman))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/static", ServeDir::new("public"))
+        .nest_service("/u", ServeDir::new("storage/users"))
         .layer(session_layer)
         .with_state(state);
 
@@ -184,7 +186,7 @@ async fn post_newproject(State(state): State<AppState>, session: Session, data: 
     let content_type = content_type.as_ref().unwrap();
     if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
-    let project_path = format!("storage/users/{}/{}", &u.username, &data.title);
+    let project_path = format!("storage/users/{}/{}", &u.username, &data.slug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.jpg");
     if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &thumbnail_path).await {
         if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
@@ -312,6 +314,30 @@ async fn get_my_projects(session: Session, State(state): State<AppState>) -> imp
         Some(uid) => {
             let projects = db::get_user_projects(&state, uid).await;
             let render = ProjectListTemplate{projects}.render();
+            if let Ok(render) = render {
+                return Html(render).into_response();
+            }
+            return generic_error().into_response();
+        },
+        None => Redirect::to("/login").into_response()
+    }
+}
+
+// Route /my/p/{project_slug}
+#[derive(Template)]
+#[template(path = "page/my_project.html")]
+struct MyProjectTemplate {
+    project: Project
+}
+
+async fn get_my_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
+    let user_id: Option<i64> = session.get("uid").await.unwrap();
+    match user_id {
+        Some(uid) => {
+            let project = db::get_project_by_slug(&state, uid, &project_slug).await;
+            if let None = project { return "Project not found".into_response(); }
+            let project = project.unwrap();
+            let render = MyProjectTemplate{project}.render();
             if let Ok(render) = render {
                 return Html(render).into_response();
             }

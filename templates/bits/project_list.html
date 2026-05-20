@@ -1,8 +1,12 @@
-<div class="update-listing">
+<div class="project-list">
     {% for proj in projects %}
-    <div>
+    <!-- <div class="project-listing" hx-get="/my/p/{{ proj.slug }}">
         <p>Project: </p>
         <p>{{ proj.title }}</p>
-    </div>
+    </div> -->
+    <a class="project-listing" href="/my/p/{{ proj.slug }}">
+        <p>Project: </p>
+        <p>{{ proj.title }}</p>
+    </a>
     {% endfor %}
 </div>

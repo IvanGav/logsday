@@ -50,7 +50,7 @@ pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<Us
 }
 
 pub async fn get_project(state: &AppState, project_id: i64) -> Option<Project> {
-    let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE user_uid = ?;")
+    let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE uid = ?;")
         .bind(&project_id)
         .fetch_optional(&state.db)
         .await;
@@ -63,4 +63,13 @@ pub async fn get_user_projects(state: &AppState, user_id: i64) -> Vec<Project> {
         .fetch_all(&state.db)
         .await;
     return projects.unwrap_or(vec![]);
+}
+
+pub async fn get_project_by_slug(state: &AppState, user_id: i64, project_slug: &str) -> Option<Project> {
+    let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE user_uid = ? AND slug = ?;")
+        .bind(&user_id)
+        .bind(&project_slug)
+        .fetch_optional(&state.db)
+        .await;
+    return projects.unwrap_or(None);
 }

@@ -106,3 +106,25 @@
     height: 40px;
     object-fit: cover;
 }
+
+/* project list */
+
+.project-list {
+    margin: 5px;
+    display: flex;
+    flex-direction: column;
+}
+
+.project-listing {
+    padding: 5px;
+    gap: 10px;
+    align-items: center;
+    display: flex;
+    flex-direction: row;
+    background-color: var(--secondary-bg);
+    margin-top: 10px;
+}
+
+.project-listing:hover {
+    background-color: var(--primary-bg);
+}
