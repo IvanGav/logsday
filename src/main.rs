@@ -1,8 +1,8 @@
 use askama::Template;
 use axum::{
-    Form, Router, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{get,post}
+    Form, Router, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::get
 };
-use axum::extract::{Path, Query, State, Multipart};
+use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
 use std::{collections::HashMap, fs};
 use tower_http::services::ServeDir;
@@ -13,8 +13,6 @@ use tower_sessions::Session;
 
 mod db;
 mod slug;
-
-// cargo remove axum_typed_multipart if i don't think i need it
 
 #[derive(Clone)]
 struct AppState {
@@ -40,7 +38,8 @@ async fn main() {
         .route("/login", get(get_login).post(post_login))
         .route("/project", get(get_project_list))
         .route("/project/{project_slug}", get(get_edit_project))
-        .route("/newproject", get(get_new_project).post(post_newproject))
+        .route("/new/project", get(get_new_project).post(post_new_project))
+        .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -126,7 +125,7 @@ async fn get_favicon() -> impl IntoResponse {
     (headers, bytes)
 }
 
-// Route /newproject
+// Route /new/project
 
 #[derive(Template)]
 #[template(path = "newproject.html")]
@@ -154,7 +153,7 @@ struct NewProjectRequest {
     thumbnail: FieldData<Bytes>,
 }
 
-async fn post_newproject(State(state): State<AppState>, session: Session, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
+async fn post_new_project(State(state): State<AppState>, session: Session, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
     if let None = uid { return hx_redirect("/login".into()).into_response(); }
     let uid = uid.unwrap();
@@ -289,7 +288,8 @@ async fn get_project_list(session: Session, State(state): State<AppState>) -> im
 #[derive(Template)]
 #[template(path = "editproject.html")]
 struct MyProjectTemplate {
-    project: Project
+    project: Project,
+    logs: Vec<LogEntry>,
 }
 
 async fn get_edit_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
@@ -299,12 +299,91 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             let project = db::get_project_by_slug(&state, uid, &project_slug).await;
             if let None = project { return "Project not found".into_response(); }
             let project = project.unwrap();
-            let render = MyProjectTemplate{project}.render();
+            let logs = db::get_project_logs(&state, project.uid).await;
+            let render = MyProjectTemplate{project, logs}.render();
             if let Ok(render) = render {
                 return Html(render).into_response();
             }
             return generic_error().into_response();
         },
         None => Redirect::to("/login").into_response()
+    }
+}
+
+// Route /new/log/{project_slug}
+
+#[derive(Template)]
+#[template(path = "newlog.html")]
+struct NewLogTemplate {
+    project: Project
+}
+
+async fn get_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
+    let uid = session.get("uid").await.unwrap();
+    if let None = uid { return Redirect::to("/login").into_response(); }
+    let uid = uid.unwrap();
+    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
+    if let None = project { return Html("Project does not exist").into_response(); }
+    let project = project.unwrap();
+    let render = NewLogTemplate{project}.render();
+    if let Ok(render) = render {
+        return Html(render).into_response();
+    }
+    return generic_error().into_response();
+}
+
+#[derive(TryFromMultipart)]
+struct NewLogRequest {
+    #[form_data(field_name = "title")]
+    title: String,
+    #[form_data(field_name = "slug")]
+    slug: String,
+    #[form_data(field_name = "content")]
+    content: String,
+    #[form_data(field_name = "thumbnail", limit = "2MB")]
+    thumbnail: FieldData<Bytes>,
+}
+
+async fn post_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<NewLogRequest>) -> impl IntoResponse {
+    let uid: Option<i64> = session.get("uid").await.unwrap();
+    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    let uid = uid.unwrap();
+
+    let u = db::get_user(&state, uid).await;
+    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    let u = u.unwrap();
+
+    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
+    if let None = project { return "Project not found".into_response(); }
+    let project = project.unwrap();
+
+    let content_type = &data.thumbnail.metadata.content_type;
+    if let None = content_type { return "Could not get file type".into_response(); }
+    let content_type = content_type.as_ref().unwrap();
+
+    if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
+    if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
+    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &data.slug);
+    let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.jpg");
+    let log_content_path = format!("{}/{}", &log_path, "content.md");
+    match db::create_log(&state, project.uid, &data.title, &data.slug, &log_content_path, &log_thumbnail_path).await {
+        Ok(_) => {
+            if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
+                if let Ok(_) = fs::write(log_thumbnail_path, &data.thumbnail.contents) {
+                    if let Ok(_) = fs::write(log_content_path, &data.content) {
+                        return hx_redirect(format!("/project/{}", project_slug)).into_response();
+                    } else {
+                        return "couldn't write content".into_response();
+                    }
+                } else {
+                    return "couldn't write thumbnail".into_response();
+                }
+            } else {
+                return "couldn't create log dir".into_response();
+            }
+        },
+        Err(e) => {
+            return e.as_database_error().unwrap().to_string().into_response();
+        }
     }
 }

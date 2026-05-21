@@ -11,13 +11,11 @@
         }
     </script>
 
-    <form hx-post="/new/project" hx-encoding="multipart/form-data">
-        <input type="text" name="title" placeholder="Project Title" required>
-        <input type="text" name="slug" placeholder="Project Slug"> <!-- TODO make it autofill with JS, unless a value is manually entered -->
-        <textarea name="description"></textarea>
-        
+    <form hx-post="/new/log/{{ project.slug }}" hx-encoding="multipart/form-data">
+        <input type="text" name="title" placeholder="Log Title" required>
+        <input type="text" name="slug" placeholder="Log Slug"> <!-- TODO make it autofill with JS, unless a value is manually entered -->
         <input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)">
-        
-        <button type="submit">Create Project</button>
+        <textarea name="content" required></textarea>
+        <button type="submit">Create Log for {{ project.title }}</button>
     </form>
 {% endblock %}

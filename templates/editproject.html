@@ -2,4 +2,15 @@
 
 {% block content %}
     <h2>{{ project.title }}</h2>
+    <a href="/new/log/{{ project.slug }}">New Log</a>
+    <div class="log-list">
+        {% for log in logs %}
+        <a class="log-listing" href="/project/{{ project.slug }}/{{ log.slug }}">
+            <p>Log: </p>
+            <p>{{ log.title }}</p>
+        </a>
+        {% else %}
+        <p>So empty... Get chopping!</p>
+        {% endfor %}
+    </div>
 {% endblock %}

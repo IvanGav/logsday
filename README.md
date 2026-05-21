@@ -18,7 +18,8 @@ You will be able to upload a devlog exactly once a week.
 - `/` => `templates/landing.html`- home, undecided
 - `/signup` => `templates/signup.html`
 - `/login` => `templates/login.html`
-- `/newproject` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
+- `/new/project` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
+- `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
 - `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
 - `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/user_page.html` - look at a user's profile
@@ -49,6 +50,7 @@ You will be able to upload a devlog exactly once a week.
 
 - For sessions I might use `Set-Cookie` http header and then store the session cookie. Btw, i have no clue how actual websites work, this is my first time researching how to make a "real" website.
 - Also, a lot of this research so far was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
+- `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page
 
 ## SQLite Tables
 ```sql

@@ -1,6 +1,22 @@
 use sqlx::sqlite::SqlitePool;
 
-use crate::{AppState, Project, User, slug};
+use crate::{AppState, LogEntry, Project, User, slug};
+
+pub async fn create_log(state: &AppState, project_id: i64, title: &str, slug: &str, content_path: &str, thumb_path: &str) -> Result<i64, sqlx::Error> {
+    assert!(slug::slug_valid(slug));
+    let result = sqlx::query(
+        "INSERT INTO logs (project_uid, title, slug, content_path, thumbnail_path) VALUES (?, ?, ?, ?, ?)"
+    )
+        .bind(project_id)
+        .bind(title)
+        .bind(slug)
+        .bind(content_path)
+        .bind(thumb_path)
+        .execute(&state.db)
+        .await?;
+    // Return the ID of the newly created log // TODO really?
+    return Ok(result.last_insert_rowid());
+}
 
 pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &str, desc: &str, thumb: &str) -> Result<i64, sqlx::Error> {
     assert!(slug::slug_valid(slug));
@@ -14,7 +30,7 @@ pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &
         .bind(thumb)
         .execute(&state.db)
         .await?;
-    // Return the ID of the newly created project
+    // Return the ID of the newly created project // TODO really?
     return Ok(result.last_insert_rowid());
 }
 
@@ -28,8 +44,10 @@ pub async fn create_user(state: &AppState, username: &str, displayname: &str, pa
         .bind(password) // plaintext password go brrrr
         .execute(&state.db)
         .await?;
-    return Ok(result.last_insert_rowid());
+    return Ok(result.last_insert_rowid()); // TODO really?
 }
+
+// Getters for `users` table
 
 pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
     let result = sqlx::query_as::<_, User>(
@@ -48,6 +66,8 @@ pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<Us
         .await;
     return result.unwrap_or(None);
 }
+
+// Getters for `projects` table
 
 pub async fn get_project(state: &AppState, project_id: i64) -> Option<Project> {
     let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE uid = ?;")
@@ -72,4 +92,14 @@ pub async fn get_project_by_slug(state: &AppState, user_id: i64, project_slug: &
         .fetch_optional(&state.db)
         .await;
     return projects.unwrap_or(None);
+}
+
+// Getters for `logs` table
+
+pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry> {
+    let logs = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ?;")
+        .bind(&project_id)
+        .fetch_all(&state.db)
+        .await;
+    return logs.unwrap_or(vec![]);
 }
