@@ -38,14 +38,12 @@ async fn main() {
         .route("/", get(landing))
         .route("/signup", get(get_signup).post(post_signup))
         .route("/login", get(get_login).post(post_login))
-        .route("/my", get(get_dashboard))
-        .route("/my/projects", get(get_my_projects))
-        .route("/my/p/{project_slug}", get(get_my_project))
-        .route("/newproject", get(get_newproject).post(post_newproject))
-        .route("/conman", get(get_conman))
+        .route("/project", get(get_project_list))
+        .route("/project/{project_slug}", get(get_edit_project))
+        .route("/newproject", get(get_new_project).post(post_newproject))
         .route("/favicon.ico", get(get_favicon))
-        .nest_service("/static", ServeDir::new("public"))
-        .nest_service("/u", ServeDir::new("storage/users"))
+        .nest_service("/uploads", ServeDir::new("uploads/users"))
+        .nest_service("/static", ServeDir::new("static"))
         .layer(session_layer)
         .with_state(state);
 
@@ -107,29 +105,11 @@ async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): P
 // Route /
 
 #[derive(Template)]
-#[template(path = "page/landing.html")]
+#[template(path = "landing.html")]
 struct LandingTemplate;
 
-#[derive(Template)]
-#[template(path = "prototype/base.html")]
-struct PrototypeTemplate;
-
 async fn landing() -> impl IntoResponse {
-    let render = LandingTemplate.render(); //PrototypeTemplate.render();
-    if let Ok(render) = render {
-        return Html(render).into_response();
-    }
-    return generic_error().into_response();
-}
-
-// Route /conman
-
-#[derive(Template)]
-#[template(path = "page/conman.html")]
-struct ConmanTemplate;
-
-async fn get_conman() -> impl IntoResponse {
-    let render = ConmanTemplate.render();
+    let render = LandingTemplate.render();
     if let Ok(render) = render {
         return Html(render).into_response();
     }
@@ -140,7 +120,7 @@ async fn get_conman() -> impl IntoResponse {
 
 async fn get_favicon() -> impl IntoResponse {
     // Bake the file into the binary at compile time - pretty cool. Did you know I like Rust?
-    let bytes = include_bytes!("../public/favicon.ico");
+    let bytes = include_bytes!("../static/favicon.ico");
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, "image/x-icon".parse().unwrap());
     (headers, bytes)
@@ -149,10 +129,10 @@ async fn get_favicon() -> impl IntoResponse {
 // Route /newproject
 
 #[derive(Template)]
-#[template(path = "page/newproject.html")]
+#[template(path = "newproject.html")]
 struct NewProjectTemplate;
 
-async fn get_newproject(session: Session) -> impl IntoResponse {
+async fn get_new_project(session: Session) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
     if let None = uid { return Redirect::to("/login").into_response(); }
     let render = NewProjectTemplate.render();
@@ -186,12 +166,12 @@ async fn post_newproject(State(state): State<AppState>, session: Session, data: 
     let content_type = content_type.as_ref().unwrap();
     if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
-    let project_path = format!("storage/users/{}/{}", &u.username, &data.slug);
+    let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.jpg");
     if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &thumbnail_path).await {
         if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
             if let Ok(_) = fs::write(thumbnail_path, &data.thumbnail.contents) {
-                return hx_redirect("/my".into()).into_response();
+                return hx_redirect("/project".into()).into_response();
             }
         }
     }
@@ -200,7 +180,7 @@ async fn post_newproject(State(state): State<AppState>, session: Session, data: 
 
 // Route /signup
 #[derive(Template)]
-#[template(path = "page/signup.html")]
+#[template(path = "signup.html")]
 struct SignupTemplate;
 
 async fn get_signup() -> impl IntoResponse {
@@ -229,12 +209,12 @@ async fn post_signup(
     let result = db::create_user(&state, &form.username, &form.displayname, &form.password).await;
     match result {
         Ok(_) => {
-            if let Ok(_) = tokio::fs::create_dir_all(format!("storage/users/{}", form.username)).await {
+            if let Ok(_) = tokio::fs::create_dir_all(format!("uploads/users/{}", form.username)).await {
                 let u = db::get_user_by_username(&state, &form.username).await;
                 if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
                 let uid = u.unwrap().uid;
                 session.insert("uid", uid).await.unwrap();
-                return hx_redirect("/my".into()).into_response();
+                return hx_redirect("/project".into()).into_response();
             } else {
                 return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create user directory").into_response();
             }
@@ -252,7 +232,7 @@ async fn post_signup(
 
 // Route /login
 #[derive(Template)]
-#[template(path = "page/login.html")]
+#[template(path = "login.html")]
 struct LoginTemplate;
 
 async fn get_login() -> impl IntoResponse {
@@ -278,59 +258,41 @@ async fn post_login(
     if let Some(u) = user {
         if u.password == form.password {
             session.insert("uid", u.uid).await.unwrap();
-            return hx_redirect("/my".into()).into_response();
+            return hx_redirect("/project".into()).into_response();
         }
     }
     return "Incorrect Username or Password".into_response();
 }
 
-// Route /my
+// Route /project
 #[derive(Template)]
-#[template(path = "page/dashboard.html")]
-struct DashboardTemplate;
+#[template(path = "projectlist.html")]
+struct ProjectListTemplate {
+    projects: Vec<Project>
+}
 
-async fn get_dashboard(session: Session) -> impl IntoResponse {
+async fn get_project_list(session: Session, State(state): State<AppState>) -> impl IntoResponse {
     let user_id: Option<i64> = session.get("uid").await.unwrap();
     if let None = user_id {
         return Redirect::to("/login").into_response();
     }
-    let render = DashboardTemplate.render();
+    let user_id = user_id.unwrap();
+    let projects = db::get_user_projects(&state, user_id).await;
+    let render = ProjectListTemplate{projects}.render();
     if let Ok(render) = render {
         return Html(render).into_response();
     }
     return generic_error().into_response();
 }
 
-// Route /my/projects
+// Route /project/{project_slug}
 #[derive(Template)]
-#[template(path = "bits/project_list.html")]
-struct ProjectListTemplate {
-    projects: Vec<Project>
-}
-
-async fn get_my_projects(session: Session, State(state): State<AppState>) -> impl IntoResponse {
-    let user_id: Option<i64> = session.get("uid").await.unwrap();
-    match user_id {
-        Some(uid) => {
-            let projects = db::get_user_projects(&state, uid).await;
-            let render = ProjectListTemplate{projects}.render();
-            if let Ok(render) = render {
-                return Html(render).into_response();
-            }
-            return generic_error().into_response();
-        },
-        None => Redirect::to("/login").into_response()
-    }
-}
-
-// Route /my/p/{project_slug}
-#[derive(Template)]
-#[template(path = "page/my_project.html")]
+#[template(path = "editproject.html")]
 struct MyProjectTemplate {
     project: Project
 }
 
-async fn get_my_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
+async fn get_edit_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
     let user_id: Option<i64> = session.get("uid").await.unwrap();
     match user_id {
         Some(uid) => {

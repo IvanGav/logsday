@@ -16,6 +16,14 @@
     --gap: 15px;
 }
 
+a {
+    text-decoration: none;
+    color: var(--link);
+}
+a:hover {
+    color: var(--link-hover);
+}
+
 /* nav */
 .navbar {
     display: flex;
@@ -34,6 +42,7 @@
 }
 .navitem:hover {
     background-color: var(--accent-hover);
+    color: var(--text-main);
 }
 
 /* generic items */

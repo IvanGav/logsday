@@ -11,31 +11,44 @@ You will be able to upload a devlog exactly once a week.
 - `Askama`'s templates (`#[template(path = "index.html")]`) live in `./templates` directory
   - Note that `Askama`'s templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
 - `Axum`'s Router uses `nest_service("/static", ServeDir::new("public"))` to map requests to `/static` to take from `./public` directory. That way, any requests to CSS or JS will take from there.
-- The database is `./sqlite.db`. Before running you might need to set an env variable `DATABASE_URL="sqlite:sqlite.db"` or `DATABASE_URL="~/logsday/sqlite.db"`
+- The database is `./sqlite.db`. Needs to be created manually. Before running you might need to set an env variable `DATABASE_URL="sqlite:sqlite.db"` or `DATABASE_URL="~/logsday/sqlite.db"`
 
-## Tech (+ yapping)
+## Paths
 
-- Ok I'm pretty sold on SQLite, Miles didn't choose it for nothing
-- SortableJS looks absolutely incredible for smooth drag and drop animations
-- I think HTMX is pretty neat, but something like Svelte or literally raw HTML/JS might be just fine.. I'll experiment with HTMLX first
-- Obviously, Axum for the backend. Ridiculously simple and robust.
-  - Askama sounds pretty neat - Jinja-like templates but with rust.
-  - [SQLx](https://docs.rs/sqlx/latest/sqlx/) is a pretty neat looking library to work with SQL from Rust
-- For video play, `<video>` html tag can be used; libraries and wrappers exist (vlitejs, etc)
-- Also, HLS (HTTP Live Streaming) is a better streaming format; so, look into it later
-- For markdown probably `pulldown-cmark`, looks quite nice. As for JS side, probably either `marked.js` or `markdown-it`.
+- `/` => `templates/landing.html`- home, undecided
+- `/signup` => `templates/signup.html`
+- `/login` => `templates/login.html`
+- `/newproject` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
+- `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
+- `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
+- `/u/{username}` => `templates/user_page.html` - look at a user's profile
+- `/u/{username}/{project_slug}` => `templates/project_page.html` - get a public project page
+- `/u/{username}/{project_slug}/{log_slug} or {log_number}` => `templates/log_page.html` - get a public project's log entry
+- `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
+- `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
+
+## Tech Stack
+
+- Database:
+  - `SQLite`
+  - `sqlx` crate for Rust interface with SQLite db
+- Web:
+  - `HTMX`
+  - `SortableJS` for specific interactions
+  - `marked.js` or `markdown-it` may be used for .md rendering on the web
+  - `vlitejs` may be used for the video player
+    - HLS (HTTP Live Streaming) is a better streaming format; so, look into it later
+- Other Crates:
+  - `axum` for web server basics
+  - `aksama` for template rendering
+  - `tower_sessions` for easy sessions
+  - `axum_typed_multipart` for convenience, for now
+  - `pulldown-cmark` may be used for markdown to html rendering
 
 ## Notes
 
 - For sessions I might use `Set-Cookie` http header and then store the session cookie. Btw, i have no clue how actual websites work, this is my first time researching how to make a "real" website.
 - Also, a lot of this research so far was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
-
-## Links
-
-- [SortableKS](https://sortablejs.github.io/Sortable/)
-- [htmx](https://htmx.org/) ([docs](https://htmx.org/docs/))
-- [Askama docs](https://askama.rs/en/stable/template_syntax.html#template-inheritance), [Askama overview](https://blog.guillaume-gomez.fr/articles/2025-03-19+Askama+and+Rinja+merge)
-- [md](https://crates.io/crates/pulldown-cmark)
 
 ## SQLite Tables
 ```sql
