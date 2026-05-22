@@ -298,6 +298,7 @@ async fn get_project_list(session: Session, State(state): State<AppState>) -> im
 #[derive(Template)]
 #[template(path = "editproject.html")]
 struct MyProjectTemplate {
+    username: String,
     project: Project,
     logs: Vec<LogEntry>,
 }
@@ -309,8 +310,13 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             let project = db::get_project_by_slug(&state, uid, &project_slug).await;
             if let None = project { return "Project not found".into_response(); }
             let project = project.unwrap();
+
+            let u = db::get_user(&state, uid).await;
+            if let None = u { return hx_redirect("/login".into()).into_response(); }
+            let username = u.unwrap().username;
+
             let logs = db::get_project_logs(&state, project.uid).await;
-            let render = MyProjectTemplate{project, logs}.render();
+            let render = MyProjectTemplate{username, project, logs}.render();
             if let Ok(render) = render {
                 return Html(render).into_response();
             }

@@ -4,6 +4,8 @@
     <h2>{{ project.title }}</h2>
     <button class="link" hx-post="/del/project/{{ project.slug }}" style="color:red" hx-target="#del-err">Delete This Project</button>
     <p id="del-err"></p>
+    <img src="/uploads/{{ username }}/{{ project.slug }}/thumb.jpg" alt="log thumbnail" height="150px">
+    <br>
     <a href="/new/log/{{ project.slug }}">New Log</a>
     <div class="log-list">
         {% for log in logs %}
