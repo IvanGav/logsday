@@ -20,12 +20,14 @@ You will be able to upload a devlog exactly once a week.
 - `/login` => `templates/login.html`
 - `/new/project` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
 - `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
+- `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
+- `/del/log/{project_slug}/{log_slug}` - delete the log for the specified project; redirect to `/login` when not logged in
 - `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
 - `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
 - `/project/{project_slug}/{log_slug}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/user_page.html` - look at a user's profile
 - `/u/{username}/{project_slug}` => `templates/project_page.html` - get a public project page
-- `/u/{username}/{project_slug}/{log_slug} or {log_number}` => `templates/log_page.html` - get a public project's log entry
+- `/u/{username}/{project_slug}/{log_slug}` => `templates/log_page.html` - get a public project's log entry
 - `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
 - `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
 

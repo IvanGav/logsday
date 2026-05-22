@@ -52,6 +52,34 @@ pub async fn create_user(state: &AppState, username: &str, displayname: &str, pa
     return Ok(result.last_insert_rowid()); // TODO really?
 }
 
+// Deleters
+
+// return true on success
+pub async fn delete_project(state: &AppState, project_uid: i64) -> bool {
+    let result = sqlx::query("DELETE FROM projects WHERE uid = ?;")
+        .bind(project_uid)
+        .execute(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+        return false;
+    }
+    return true;
+}
+
+// return true on success
+pub async fn delete_log(state: &AppState, log_uid: i64) -> bool {
+    let result = sqlx::query("DELETE FROM logs WHERE uid = ?;")
+        .bind(log_uid)
+        .execute(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+        return false;
+    }
+    return true;
+}
+
 // Getters for `users` table
 
 pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {

@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    Form, Router, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::get
+    Form, Router, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{get, post}
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
@@ -42,6 +42,8 @@ async fn main() {
         .route("/project/{project_slug}/{log_slug}", get(get_edit_log))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
+        .route("/del/project/{project_slug}", post(post_del_project))
+        .route("/del/log/{project_slug}/{log_slug}", post(post_del_log))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -162,12 +164,15 @@ async fn post_new_project(State(state): State<AppState>, session: Session, data:
     let uid: Option<i64> = session.get("uid").await.unwrap();
     if let None = uid { return hx_redirect("/login".into()).into_response(); }
     let uid = uid.unwrap();
+
     let u = db::get_user(&state, uid).await;
     if let None = u { return hx_redirect("/login".into()).into_response(); }
     let u = u.unwrap();
+
     let content_type = &data.thumbnail.metadata.content_type;
     if let None = content_type { return "Could not get file type".into_response(); }
     let content_type = content_type.as_ref().unwrap();
+
     if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
@@ -432,4 +437,56 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
             return e.as_database_error().unwrap().to_string().into_response();
         }
     }
+}
+
+// Route /del/project/{project_slug}
+
+async fn post_del_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
+    let uid: Option<i64> = session.get("uid").await.unwrap();
+    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    let uid = uid.unwrap();
+
+    let u = db::get_user(&state, uid).await;
+    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    let u = u.unwrap();
+
+    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
+    if let None = project { return "Project not found".into_response(); }
+    let project = project.unwrap();
+
+    if db::delete_project(&state, project.uid).await {
+        if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}", u.username, &project_slug)).await {
+            return e.to_string().into_response();
+        }
+        return hx_redirect("/project".to_string()).into_response();
+    }
+    return "Project does not exist or cannot be deleted".into_response();
+}
+
+// Route /del/log/{project_slug}/{log_slug}
+
+async fn post_del_log(session: Session, State(state): State<AppState>, Path((project_slug, log_slug)): Path<(String,String)>) -> impl IntoResponse {
+    let uid: Option<i64> = session.get("uid").await.unwrap();
+    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    let uid = uid.unwrap();
+
+    let u = db::get_user(&state, uid).await;
+    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    let u = u.unwrap();
+
+    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
+    if let None = project { return "Project not found".into_response(); }
+    let project = project.unwrap();
+
+    let log = db::get_log_by_slug(&state, project.uid, &log_slug).await;
+    if let None = log { return "Log not found".into_response(); }
+    let log = log.unwrap();
+
+    if db::delete_log(&state, log.uid).await {
+        if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}/{}", u.username, &project_slug, &log_slug)).await {
+            return e.to_string().into_response();
+        }
+        return hx_redirect(format!("/project/{}", project_slug)).into_response();
+    }
+    return "Log does not exist or cannot be deleted".into_response();
 }

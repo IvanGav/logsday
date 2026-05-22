@@ -2,6 +2,8 @@
 
 {% block content %}
     <h2>Log {{ log.title }}</h2>
+    <button class="link" hx-post="/del/log/{{ project_slug }}/{{ log.slug }}" style="color:red" hx-target="#del-err">Delete This Log</button>
+    <p id="del-err"></p>
     <img src="/uploads/{{ username }}/{{ project_slug }}/{{ log.slug }}/thumb.jpg" alt="log thumbnail" height="150px">
     <div hx-trigger="load" hx-get="/uploads/{{ username }}/{{ project_slug }}/{{ log.slug }}/content.md"></div>
 {% endblock %}
