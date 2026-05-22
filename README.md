@@ -22,6 +22,7 @@ You will be able to upload a devlog exactly once a week.
 - `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
 - `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
 - `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
+- `/project/{project_slug}/{log_slug}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/user_page.html` - look at a user's profile
 - `/u/{username}/{project_slug}` => `templates/project_page.html` - get a public project page
 - `/u/{username}/{project_slug}/{log_slug} or {log_number}` => `templates/log_page.html` - get a public project's log entry
@@ -48,9 +49,9 @@ You will be able to upload a devlog exactly once a week.
 
 ## Notes
 
-- For sessions I might use `Set-Cookie` http header and then store the session cookie. Btw, i have no clue how actual websites work, this is my first time researching how to make a "real" website.
-- Also, a lot of this research so far was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
-- `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page
+- A lot of research for this project was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
+- `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page. Any exceptions will be noted here and in the code.
+- Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
 
 ## SQLite Tables
 ```sql
@@ -58,7 +59,10 @@ CREATE TABLE users (
     uid INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     displayname TEXT NOT NULL,
-    password TEXT NOT NULL
+    password TEXT NOT NULL,
+    week_len INTEGER NOT NULL DEFAULT 8,
+    logsday_weekday INTEGER NOT NULL DEFAULT 3, -- Logsday is between Wednesday and Thursday; Monday is 0; Sunday is 6/7
+    schedule_last_changed INTEGER NOT NULL -- when the user changed their Logsday selection last time
 );
 
 CREATE TABLE projects (
@@ -67,8 +71,8 @@ CREATE TABLE projects (
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
-    thumbnail_path TEXT NOT NULL,
-    created_on DATETIME DEFAULT CURRENT_TIMESTAMP,
+    thumbnail_path TEXT NOT NULL, -- technically unnecessary
+    created_on INTEGER NOT NULL,
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 
@@ -77,9 +81,9 @@ CREATE TABLE logs (
     project_uid INTEGER NOT NULL,
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
-    content_path TEXT NOT NULL,
-    thumbnail_path TEXT NOT NULL,
-    created_on DATETIME DEFAULT CURRENT_TIMESTAMP,
+    content_path TEXT NOT NULL, -- technically unnecessary
+    thumbnail_path TEXT NOT NULL, -- technically unnecessary
+    created_on INTEGER NOT NULL,
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
 

@@ -1,17 +1,18 @@
 use sqlx::sqlite::SqlitePool;
 
-use crate::{AppState, LogEntry, Project, User, slug};
+use crate::{AppState, LogEntry, Project, User, slug, week};
 
 pub async fn create_log(state: &AppState, project_id: i64, title: &str, slug: &str, content_path: &str, thumb_path: &str) -> Result<i64, sqlx::Error> {
     assert!(slug::slug_valid(slug));
     let result = sqlx::query(
-        "INSERT INTO logs (project_uid, title, slug, content_path, thumbnail_path) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO logs (project_uid, title, slug, content_path, thumbnail_path, created_on) VALUES (?, ?, ?, ?, ?, ?)"
     )
         .bind(project_id)
         .bind(title)
         .bind(slug)
         .bind(content_path)
         .bind(thumb_path)
+        .bind(week::today())
         .execute(&state.db)
         .await?;
     // Return the ID of the newly created log // TODO really?
@@ -21,27 +22,31 @@ pub async fn create_log(state: &AppState, project_id: i64, title: &str, slug: &s
 pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &str, desc: &str, thumb: &str) -> Result<i64, sqlx::Error> {
     assert!(slug::slug_valid(slug));
     let result = sqlx::query(
-        "INSERT INTO projects (user_uid, title, slug, description, thumbnail_path) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO projects (user_uid, title, slug, description, thumbnail_path, created_on) VALUES (?, ?, ?, ?, ?, ?)"
     )
         .bind(user_id)
         .bind(title)
         .bind(slug)
         .bind(desc)
         .bind(thumb)
+        .bind(week::today())
         .execute(&state.db)
         .await?;
     // Return the ID of the newly created project // TODO really?
     return Ok(result.last_insert_rowid());
 }
 
-pub async fn create_user(state: &AppState, username: &str, displayname: &str, password: &str) -> Result<i64, sqlx::Error> {
+pub async fn create_user(state: &AppState, username: &str, displayname: &str, password: &str, week_len: i64, logsday_weekday: i64) -> Result<i64, sqlx::Error> {
     assert!(slug::slug_valid(username));
     let result = sqlx::query(
-        "INSERT INTO users (username, displayname, password) VALUES (?, ?, ?)",
+        "INSERT INTO users (username, displayname, password, week_len, logsday_weekday, schedule_last_changed) VALUES (?, ?, ?, ?, ?, ?)",
     )
         .bind(username)
         .bind(displayname)
         .bind(password) // plaintext password go brrrr
+        .bind(week_len)
+        .bind(logsday_weekday)
+        .bind(week::today())
         .execute(&state.db)
         .await?;
     return Ok(result.last_insert_rowid()); // TODO really?

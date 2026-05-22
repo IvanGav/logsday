@@ -2,6 +2,7 @@
 
 {% block content %}
     <h2>Your Projects</h2>
+    <a href="/new/project">New Project</a>
     <div class="project-list">
         {% for proj in projects %}
         <a class="project-listing" href="/project/{{ proj.slug }}">

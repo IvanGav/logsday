@@ -13,6 +13,7 @@ use tower_sessions::Session;
 
 mod db;
 mod slug;
+mod week;
 
 #[derive(Clone)]
 struct AppState {
@@ -65,6 +66,9 @@ struct User {
     username: String, // unique
     displayname: String,
     password: String,
+    week_len: i64,
+    logsday_weekday: i64,
+    schedule_last_changed: week::UnixTime,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -75,7 +79,7 @@ struct Project {
     slug: String,
     description: String, // nullable
     thumbnail_path: String,
-    // created_on: DateTime,
+    created_on: week::UnixTime,
 }
 
 // for now, let's exclude updates from existing, i don't want to worry about 2 types of logs for now
@@ -87,7 +91,7 @@ struct LogEntry {
     slug: String,
     content_path: String,
     thumbnail_path: String,
-    // created_on: DateTime,
+    created_on: week::UnixTime,
 }
 
 async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): Path<u32>) -> String {
@@ -206,7 +210,7 @@ async fn post_signup(
     if !slug::slug_valid(&form.username) {
         return generic_error().into_response();
     }
-    let result = db::create_user(&state, &form.username, &form.displayname, &form.password).await;
+    let result = db::create_user(&state, &form.username, &form.displayname, &form.password, 8, 3).await;
     match result {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(format!("uploads/users/{}", form.username)).await {
@@ -419,3 +423,12 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
         }
     }
 }
+
+/*
+SELECT l.created_at 
+FROM logs l
+JOIN projects p ON l.project_uid = p.uid
+WHERE p.user_uid = ? 
+ORDER BY l.created_at DESC 
+LIMIT 1;
+*/
