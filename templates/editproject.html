@@ -9,7 +9,7 @@
     <a href="/new/log/{{ project.slug }}">New Log</a>
     <div class="log-list">
         {% for log in logs %}
-        <a class="log-listing" href="/project/{{ project.slug }}/{{ log.slug }}">
+        <a class="log-listing" href="/project/{{ project.slug }}/{{ log.number }}">
             <p>Log: </p>
             <p>{{ log.title }}</p>
         </a>

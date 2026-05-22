@@ -18,16 +18,17 @@ You will be able to upload a devlog exactly once a week.
 - `/` => `templates/landing.html`- home, undecided
 - `/signup` => `templates/signup.html`
 - `/login` => `templates/login.html`
+- `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
+- `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
+- `/project/{project_slug}/{log_number}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
 - `/new/project` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
 - `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
 - `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
-- `/del/log/{project_slug}/{log_slug}` - delete the log for the specified project; redirect to `/login` when not logged in
-- `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
-- `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
-- `/project/{project_slug}/{log_slug}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
+- `/del/log/{project_slug}/{log_number}` - delete the log for the specified project; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/user_page.html` - look at a user's profile
 - `/u/{username}/{project_slug}` => `templates/project_page.html` - get a public project page
-- `/u/{username}/{project_slug}/{log_slug}` => `templates/log_page.html` - get a public project's log entry
+- `/u/{username}/{project_slug}/{log_number}` => `templates/log_page.html` - get a public project's log entry
+- `/u/{username}/{project_slug}/{log_number}/comment` - view log comments or submit a new log comment
 - `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
 - `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
 
@@ -64,7 +65,7 @@ CREATE TABLE users (
     password TEXT NOT NULL,
     week_len INTEGER NOT NULL DEFAULT 8,
     logsday_weekday INTEGER NOT NULL DEFAULT 3, -- Logsday is between Wednesday and Thursday; Monday is 0; Sunday is 6/7
-    schedule_last_changed INTEGER NOT NULL -- when the user changed their Logsday selection last time
+    schedule_last_changed INTEGER NOT NULL -- when the user changed their Logsday selection last time; unix timestamp
 );
 
 CREATE TABLE projects (
@@ -73,8 +74,10 @@ CREATE TABLE projects (
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
-    thumbnail_path TEXT NOT NULL, -- technically unnecessary
-    created_on INTEGER NOT NULL,
+    path TEXT NOT NULL, -- technically unnecessary, but convenient
+    created_on INTEGER NOT NULL, -- unix timestamp
+
+    UNIQUE(user_uid, slug)
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 
@@ -82,12 +85,11 @@ CREATE TABLE logs (
     uid INTEGER PRIMARY KEY AUTOINCREMENT,
     project_uid INTEGER NOT NULL,
     title TEXT NOT NULL,
-    slug TEXT NOT NULL,
-    content_path TEXT NOT NULL, -- technically unnecessary
-    thumbnail_path TEXT NOT NULL, -- technically unnecessary
-    created_on INTEGER NOT NULL,
+    number INTEGER NOT NULL, -- this log's sequential number in the project
+    path TEXT NOT NULL, -- technically unnecessary, but convenient
+    created_on INTEGER NOT NULL, -- unix timestamp
+
+    UNIQUE(project_uid, number)
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
-
-CREATE INDEX idx_projects_user_slug ON projects (user_uid, slug);
 ```

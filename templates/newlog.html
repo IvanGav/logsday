@@ -13,8 +13,7 @@
 
     <form hx-post="/new/log/{{ project.slug }}" hx-encoding="multipart/form-data" hx-target="#err">
         <input type="text" name="title" placeholder="Log Title" required>
-        <input type="text" name="slug" placeholder="Log Slug"> <!-- TODO make it autofill with JS, unless a value is manually entered -->
-        <input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)">
+        <input type="file" name="thumbnail" accept="image/png, image/jpg, image/jpeg, image/webp, image/gif" id="thumbnail-input" onchange="checkFileSize(this)">
         <textarea name="content" required></textarea>
         <button type="submit">Create Log for {{ project.title }}</button>
     </form>

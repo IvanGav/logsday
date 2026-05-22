@@ -15,6 +15,8 @@ mod db;
 mod slug;
 mod week;
 
+const ACCEPTED_THUMBNAIL_FILE_TYPES: [&str; 5] = ["image/png", "image/jpg", "image/jpeg", "image/gif", "image/webp"];
+
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
@@ -39,11 +41,14 @@ async fn main() {
         .route("/login", get(get_login).post(post_login))
         .route("/project", get(get_project_list))
         .route("/project/{project_slug}", get(get_edit_project))
-        .route("/project/{project_slug}/{log_slug}", get(get_edit_log))
+        .route("/project/{project_slug}/{log_number}", get(get_edit_log))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/del/project/{project_slug}", post(post_del_project))
-        .route("/del/log/{project_slug}/{log_slug}", post(post_del_log))
+        .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
+        // .route("/u/{username}", get())
+        // .route("/u/{username}/{project_slug}", get())
+        // .route("/u/{username}/{project_slug}/{log_number}", get())
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -80,19 +85,17 @@ struct Project {
     title: String,
     slug: String,
     description: String, // nullable
-    thumbnail_path: String,
+    path: String,
     created_on: week::UnixTime,
 }
 
-// for now, let's exclude updates from existing, i don't want to worry about 2 types of logs for now
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, Default)]
 struct LogEntry {
     uid: i64, // unique
     project_uid: i64,
     title: String,
-    slug: String,
-    content_path: String,
-    thumbnail_path: String,
+    number: i64,
+    path: String,
     created_on: week::UnixTime,
 }
 
@@ -171,13 +174,13 @@ async fn post_new_project(State(state): State<AppState>, session: Session, data:
 
     let content_type = &data.thumbnail.metadata.content_type;
     if let None = content_type { return "Could not get file type".into_response(); }
-    let content_type = content_type.as_ref().unwrap();
+    let content_type: &str = content_type.as_ref().unwrap();
 
-    if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
+    if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.jpg");
-    if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &thumbnail_path).await {
+    if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &project_path).await {
         if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
             if let Ok(_) = fs::write(thumbnail_path, &data.thumbnail.contents) {
                 return hx_redirect("/project".into()).into_response();
@@ -297,7 +300,7 @@ async fn get_project_list(session: Session, State(state): State<AppState>) -> im
 // Route /project/{project_slug}
 #[derive(Template)]
 #[template(path = "editproject.html")]
-struct MyProjectTemplate {
+struct EditProjectTemplate {
     username: String,
     project: Project,
     logs: Vec<LogEntry>,
@@ -316,7 +319,7 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             let username = u.unwrap().username;
 
             let logs = db::get_project_logs(&state, project.uid).await;
-            let render = MyProjectTemplate{username, project, logs}.render();
+            let render = EditProjectTemplate{username, project, logs}.render();
             if let Ok(render) = render {
                 return Html(render).into_response();
             }
@@ -326,7 +329,7 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
     }
 }
 
-// Route /project/{project_slug}/{log_slug}
+// Route /project/{project_slug}/{log_number}
 #[derive(Template)]
 #[template(path = "editlog.html")]
 struct EditLogTemplate {
@@ -335,7 +338,7 @@ struct EditLogTemplate {
     log: LogEntry,
 }
 
-async fn get_edit_log(session: Session, State(state): State<AppState>, Path((project_slug, log_slug)): Path<(String, String)>) -> impl IntoResponse {
+async fn get_edit_log(session: Session, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, String)>) -> impl IntoResponse {
     let user_id: Option<i64> = session.get("uid").await.unwrap();
     match user_id {
         Some(uid) => {
@@ -343,7 +346,11 @@ async fn get_edit_log(session: Session, State(state): State<AppState>, Path((pro
             if let None = user { return "could not get user data".into_response(); }
             let user = user.unwrap();
 
-            let log = db::get_log_uuid_pslug_lslug(&state, uid, &project_slug, &log_slug).await;
+            let log_number = log_number.parse::<i64>();
+            if let Err(e) = log_number { return e.to_string().into_response(); }
+            let log_number = log_number.unwrap();
+
+            let log = db::get_log_uuid_pslug_lslug(&state, uid, &project_slug, log_number).await;
             if let None = log { return "Log not found".into_response(); }
             let log = log.unwrap();
 
@@ -373,7 +380,7 @@ async fn get_new_log(session: Session, State(state): State<AppState>, Path(proje
     let user = db::get_user(&state, uid).await.unwrap();
 
     if let Some(log) = db::get_last_log(&state, uid).await {
-        if week::days_since(log.created_on) < user.week_len {
+        if uid != 1 && week::days_since(log.created_on) < user.week_len { // user 1 is allowed to upload whenever; debug feature
             return Html("You've already uploaded a log this week! Go touch some logs and come back next week!").into_response();
         }
     }
@@ -393,8 +400,6 @@ async fn get_new_log(session: Session, State(state): State<AppState>, Path(proje
 struct NewLogRequest {
     #[form_data(field_name = "title")]
     title: String,
-    #[form_data(field_name = "slug")]
-    slug: String,
     #[form_data(field_name = "content")]
     content: String,
     #[form_data(field_name = "thumbnail", limit = "2MB")]
@@ -416,14 +421,15 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
 
     let content_type = &data.thumbnail.metadata.content_type;
     if let None = content_type { return "Could not get file type".into_response(); }
-    let content_type = content_type.as_ref().unwrap();
+    let content_type: &str = content_type.as_ref().unwrap();
 
-    if content_type != "image/jpg" && content_type != "image/jpeg" && content_type != "image/png" { return "Unsupported file format".into_response(); }
-    if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
-    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &data.slug);
+    let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
+
+    if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
+    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
     let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.jpg");
-    let log_content_path = format!("{}/{}", &log_path, "content.md");
-    match db::create_log(&state, project.uid, &data.title, &data.slug, &log_content_path, &log_thumbnail_path).await {
+    let log_content_path = format!("{}/{}", &log_path, "index.md");
+    match db::create_log(&state, project.uid, &data.title, log_number, &log_path).await {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
                 if let Ok(_) = fs::write(log_thumbnail_path, &data.thumbnail.contents) {
@@ -469,9 +475,9 @@ async fn post_del_project(session: Session, State(state): State<AppState>, Path(
     return "Project does not exist or cannot be deleted".into_response();
 }
 
-// Route /del/log/{project_slug}/{log_slug}
+// Route /del/log/{project_slug}/{log_number}
 
-async fn post_del_log(session: Session, State(state): State<AppState>, Path((project_slug, log_slug)): Path<(String,String)>) -> impl IntoResponse {
+async fn post_del_log(session: Session, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String,String)>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
     if let None = uid { return hx_redirect("/login".into()).into_response(); }
     let uid = uid.unwrap();
@@ -484,12 +490,16 @@ async fn post_del_log(session: Session, State(state): State<AppState>, Path((pro
     if let None = project { return "Project not found".into_response(); }
     let project = project.unwrap();
 
-    let log = db::get_log_by_slug(&state, project.uid, &log_slug).await;
+    let log_number = log_number.parse::<i64>();
+    if let Err(e) = log_number { return e.to_string().into_response(); }
+    let log_number = log_number.unwrap();
+
+    let log = db::get_log_by_slug(&state, project.uid, log_number).await;
     if let None = log { return "Log not found".into_response(); }
     let log = log.unwrap();
 
     if db::delete_log(&state, log.uid).await {
-        if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}/{}", u.username, &project_slug, &log_slug)).await {
+        if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}/{}", u.username, &project_slug, log_number)).await {
             return e.to_string().into_response();
         }
         return hx_redirect(format!("/project/{}", project_slug)).into_response();

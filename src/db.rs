@@ -2,16 +2,14 @@ use sqlx::sqlite::SqlitePool;
 
 use crate::{AppState, LogEntry, Project, User, slug, week};
 
-pub async fn create_log(state: &AppState, project_id: i64, title: &str, slug: &str, content_path: &str, thumb_path: &str) -> Result<i64, sqlx::Error> {
-    assert!(slug::slug_valid(slug));
+pub async fn create_log(state: &AppState, project_id: i64, title: &str, number: i64, path: &str) -> Result<i64, sqlx::Error> {
     let result = sqlx::query(
-        "INSERT INTO logs (project_uid, title, slug, content_path, thumbnail_path, created_on) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO logs (project_uid, title, number, path, created_on) VALUES (?, ?, ?, ?, ?)"
     )
         .bind(project_id)
         .bind(title)
-        .bind(slug)
-        .bind(content_path)
-        .bind(thumb_path)
+        .bind(number)
+        .bind(path)
         .bind(week::today())
         .execute(&state.db)
         .await?;
@@ -19,16 +17,16 @@ pub async fn create_log(state: &AppState, project_id: i64, title: &str, slug: &s
     return Ok(result.last_insert_rowid());
 }
 
-pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &str, desc: &str, thumb: &str) -> Result<i64, sqlx::Error> {
+pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &str, desc: &str, path: &str) -> Result<i64, sqlx::Error> {
     assert!(slug::slug_valid(slug));
     let result = sqlx::query(
-        "INSERT INTO projects (user_uid, title, slug, description, thumbnail_path, created_on) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO projects (user_uid, title, slug, description, path, created_on) VALUES (?, ?, ?, ?, ?, ?)"
     )
         .bind(user_id)
         .bind(title)
         .bind(slug)
         .bind(desc)
-        .bind(thumb)
+        .bind(path)
         .bind(week::today())
         .execute(&state.db)
         .await?;
@@ -155,10 +153,10 @@ pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry
     return logs.unwrap_or(vec![]);
 }
 
-pub async fn get_log_by_slug(state: &AppState, project_id: i64, log_slug: &str) -> Option<LogEntry> {
-    let log = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? AND slug = ?;")
+pub async fn get_log_by_slug(state: &AppState, project_id: i64, log_number: i64) -> Option<LogEntry> {
+    let log = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? AND number = ?;")
         .bind(&project_id)
-        .bind(&log_slug)
+        .bind(log_number)
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &log {
@@ -167,17 +165,30 @@ pub async fn get_log_by_slug(state: &AppState, project_id: i64, log_slug: &str) 
     return log.unwrap_or(None);
 }
 
-pub async fn get_log_uuid_pslug_lslug(state: &AppState, user_id: i64, project_slug: &str, log_slug: &str) -> Option<LogEntry> {
+pub async fn get_log_uuid_pslug_lslug(state: &AppState, user_id: i64, project_slug: &str, log_number: i64) -> Option<LogEntry> {
     let p = get_project_by_slug(&state, user_id, project_slug).await;
     if let None = p { return None; }
     let p = p.unwrap();
-    return get_log_by_slug(&state, p.uid, log_slug).await;
+    return get_log_by_slug(&state, p.uid, log_number).await;
 }
 
 pub async fn get_last_log(state: &AppState, user_uid: i64) -> Option<LogEntry> {
-    let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.slug, l.content_path, l.thumbnail_path, l.created_on
+    let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.number, l.path, l.created_on
         FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? ORDER BY l.created_on DESC LIMIT 1;")
     .bind(user_uid)
+    .fetch_optional(&state.db)
+    .await;
+    if let Err(e) = &log {
+        println!("DB ERROR: {}", e);
+    }
+    return log.unwrap_or(None);
+}
+
+pub async fn get_last_project_log(state: &AppState, user_uid: i64, project_slug: &str) -> Option<LogEntry> {
+    let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.number, l.path, l.created_on
+        FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? AND p.slug = ? ORDER BY l.created_on DESC LIMIT 1;")
+    .bind(user_uid)
+    .bind(project_slug)
     .fetch_optional(&state.db)
     .await;
     if let Err(e) = &log {
