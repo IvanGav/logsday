@@ -358,9 +358,19 @@ async fn get_new_log(session: Session, State(state): State<AppState>, Path(proje
     let uid = session.get("uid").await.unwrap();
     if let None = uid { return Redirect::to("/login").into_response(); }
     let uid = uid.unwrap();
+
+    let user = db::get_user(&state, uid).await.unwrap();
+
+    if let Some(log) = db::get_last_log(&state, uid).await {
+        if week::days_since(log.created_on) < user.week_len {
+            return Html("You've already uploaded a log this week! Go touch some logs and come back next week!").into_response();
+        }
+    }
+
     let project = db::get_project_by_slug(&state, uid, &project_slug).await;
     if let None = project { return Html("Project does not exist").into_response(); }
     let project = project.unwrap();
+
     let render = NewLogTemplate{project}.render();
     if let Ok(render) = render {
         return Html(render).into_response();
@@ -423,12 +433,3 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
         }
     }
 }
-
-/*
-SELECT l.created_at 
-FROM logs l
-JOIN projects p ON l.project_uid = p.uid
-WHERE p.user_uid = ? 
-ORDER BY l.created_at DESC 
-LIMIT 1;
-*/

@@ -61,6 +61,9 @@ pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
         .bind(user_id)
         .fetch_optional(&state.db)
         .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+    }
     return result.unwrap_or(None);
 }
 
@@ -69,17 +72,23 @@ pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<Us
         .bind(username)
         .fetch_optional(&state.db)
         .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+    }
     return result.unwrap_or(None);
 }
 
 // Getters for `projects` table
 
 pub async fn get_project(state: &AppState, project_id: i64) -> Option<Project> {
-    let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE uid = ?;")
+    let project = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE uid = ?;")
         .bind(&project_id)
         .fetch_optional(&state.db)
         .await;
-    return projects.unwrap_or(None);
+    if let Err(e) = &project {
+        println!("DB ERROR: {}", e);
+    }
+    return project.unwrap_or(None);
 }
 
 pub async fn get_user_projects(state: &AppState, user_id: i64) -> Vec<Project> {
@@ -87,16 +96,22 @@ pub async fn get_user_projects(state: &AppState, user_id: i64) -> Vec<Project> {
         .bind(&user_id)
         .fetch_all(&state.db)
         .await;
+    if let Err(e) = &projects {
+        println!("DB ERROR: {}", e);
+    }
     return projects.unwrap_or(vec![]);
 }
 
 pub async fn get_project_by_slug(state: &AppState, user_id: i64, project_slug: &str) -> Option<Project> {
-    let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE user_uid = ? AND slug = ?;")
+    let project = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE user_uid = ? AND slug = ?;")
         .bind(&user_id)
         .bind(&project_slug)
         .fetch_optional(&state.db)
         .await;
-    return projects.unwrap_or(None);
+    if let Err(e) = &project {
+        println!("DB ERROR: {}", e);
+    }
+    return project.unwrap_or(None);
 }
 
 // Getters for `logs` table
@@ -106,6 +121,9 @@ pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry
         .bind(&project_id)
         .fetch_all(&state.db)
         .await;
+    if let Err(e) = &logs {
+        println!("DB ERROR: {}", e);
+    }
     return logs.unwrap_or(vec![]);
 }
 
@@ -115,6 +133,9 @@ pub async fn get_log_by_slug(state: &AppState, project_id: i64, log_slug: &str) 
         .bind(&log_slug)
         .fetch_optional(&state.db)
         .await;
+    if let Err(e) = &log {
+        println!("DB ERROR: {}", e);
+    }
     return log.unwrap_or(None);
 }
 
@@ -123,4 +144,16 @@ pub async fn get_log_uuid_pslug_lslug(state: &AppState, user_id: i64, project_sl
     if let None = p { return None; }
     let p = p.unwrap();
     return get_log_by_slug(&state, p.uid, log_slug).await;
+}
+
+pub async fn get_last_log(state: &AppState, user_uid: i64) -> Option<LogEntry> {
+    let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.slug, l.content_path, l.thumbnail_path, l.created_on
+        FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? ORDER BY l.created_on DESC LIMIT 1;")
+    .bind(user_uid)
+    .fetch_optional(&state.db)
+    .await;
+    if let Err(e) = &log {
+        println!("DB ERROR: {}", e);
+    }
+    return log.unwrap_or(None);
 }
