@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Log {{ log.title }}</h2>
+    <img src="/uploads/{{ username }}/{{ project_slug }}/{{ log.slug }}/thumb.jpg" alt="log thumbnail" height="150px">
+    <div hx-trigger="load" hx-get="/uploads/{{ username }}/{{ project_slug }}/{{ log.slug }}/content.md"></div>
+{% endblock %}

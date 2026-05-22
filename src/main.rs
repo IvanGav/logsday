@@ -38,6 +38,7 @@ async fn main() {
         .route("/login", get(get_login).post(post_login))
         .route("/project", get(get_project_list))
         .route("/project/{project_slug}", get(get_edit_project))
+        .route("/project/{project_slug}/{log_slug}", get(get_edit_log))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/favicon.ico", get(get_favicon))
@@ -301,6 +302,37 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             let project = project.unwrap();
             let logs = db::get_project_logs(&state, project.uid).await;
             let render = MyProjectTemplate{project, logs}.render();
+            if let Ok(render) = render {
+                return Html(render).into_response();
+            }
+            return generic_error().into_response();
+        },
+        None => Redirect::to("/login").into_response()
+    }
+}
+
+// Route /project/{project_slug}/{log_slug}
+#[derive(Template)]
+#[template(path = "editlog.html")]
+struct EditLogTemplate {
+    username: String,
+    project_slug: String,
+    log: LogEntry,
+}
+
+async fn get_edit_log(session: Session, State(state): State<AppState>, Path((project_slug, log_slug)): Path<(String, String)>) -> impl IntoResponse {
+    let user_id: Option<i64> = session.get("uid").await.unwrap();
+    match user_id {
+        Some(uid) => {
+            let user = db::get_user(&state, uid).await;
+            if let None = user { return "could not get user data".into_response(); }
+            let user = user.unwrap();
+
+            let log = db::get_log_uuid_pslug_lslug(&state, uid, &project_slug, &log_slug).await;
+            if let None = log { return "Log not found".into_response(); }
+            let log = log.unwrap();
+
+            let render = EditLogTemplate{username: user.username, project_slug, log}.render();
             if let Ok(render) = render {
                 return Html(render).into_response();
             }

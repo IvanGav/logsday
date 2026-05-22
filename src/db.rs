@@ -103,3 +103,19 @@ pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry
         .await;
     return logs.unwrap_or(vec![]);
 }
+
+pub async fn get_log_by_slug(state: &AppState, project_id: i64, log_slug: &str) -> Option<LogEntry> {
+    let log = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? AND slug = ?;")
+        .bind(&project_id)
+        .bind(&log_slug)
+        .fetch_optional(&state.db)
+        .await;
+    return log.unwrap_or(None);
+}
+
+pub async fn get_log_uuid_pslug_lslug(state: &AppState, user_id: i64, project_slug: &str, log_slug: &str) -> Option<LogEntry> {
+    let p = get_project_by_slug(&state, user_id, project_slug).await;
+    if let None = p { return None; }
+    let p = p.unwrap();
+    return get_log_by_slug(&state, p.uid, log_slug).await;
+}
