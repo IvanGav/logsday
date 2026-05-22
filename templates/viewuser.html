@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>{{ owner.displayname }} ({{ owner.username }})</h2>
+    {% if owner.week_len == 7 %}
+    <h3>Their Logsday is on {{ self::get_weekday_name(*owner.logsday_weekday) }}</h3>
+    {% else %}
+    <h3>Their Logsday is between {{ self::get_weekday_name(owner.logsday_weekday-1) }} and {{ self::get_weekday_name(*owner.logsday_weekday) }}</h3>
+    {% endif %}
+    <div class="project-list">
+        {% for proj in projects %}
+        <a class="project-listing" href="/u/{{ owner.username }}/{{ proj.slug }}">
+            <p>Project: </p>
+            <p>{{ proj.title }}</p>
+        </a>
+        {% endfor %}
+    </div>
+{% endblock %}

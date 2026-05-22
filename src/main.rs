@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    Form, Router, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{get, post}
+    Form, Router, ServiceExt, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{get, post}
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
@@ -10,12 +10,21 @@ use sqlx::sqlite::SqlitePool;
 use serde::Deserialize;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
+use tower_http::normalize_path::NormalizePath;
+use tower_layer::Layer;
 
 mod db;
 mod slug;
 mod week;
 
 const ACCEPTED_THUMBNAIL_FILE_TYPES: [&str; 5] = ["image/png", "image/jpg", "image/jpeg", "image/gif", "image/webp"];
+const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satruday", "Sunday"];
+
+pub fn get_weekday_name(mut cur_day: i64) -> &'static str {
+    if cur_day < 0 { cur_day += 7; }
+    if cur_day > 6 { cur_day -= 7; }
+    return WEEKDAY_NAMES[cur_day as usize];
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -46,14 +55,17 @@ async fn main() {
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/del/project/{project_slug}", post(post_del_project))
         .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
-        // .route("/u/{username}", get())
-        // .route("/u/{username}/{project_slug}", get())
-        // .route("/u/{username}/{project_slug}/{log_number}", get())
+        .route("/u/{username}", get(get_view_user))
+        .route("/u/{username}/{project_slug}", get(get_view_project))
+        .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
         .layer(session_layer)
         .with_state(state);
+
+    let app = NormalizePath::trim_trailing_slash(app.into_service());
+    let app = app.into_make_service();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -109,6 +121,12 @@ async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): P
         a.push(',');
     }
     return a;
+}
+
+#[derive(Template)]
+#[template(path = "message.html")]
+struct MessageTemplate {
+    message: String,
 }
 
 // Route /
@@ -505,4 +523,75 @@ async fn post_del_log(session: Session, State(state): State<AppState>, Path((pro
         return hx_redirect(format!("/project/{}", project_slug)).into_response();
     }
     return "Log does not exist or cannot be deleted".into_response();
+}
+
+// Route /u/{username}
+
+#[derive(Template)]
+#[template(path = "viewuser.html")]
+struct ViewUserTemplate {
+    owner: User,
+    projects: Vec<Project>,
+}
+
+async fn get_view_user(State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
+    let u = db::get_user_by_username(&state, &username).await;
+    if let None = u { return MessageTemplate{message: "User does not exist".to_string()}.render().unwrap().into_response(); }
+    let u = u.unwrap();
+    let projects = db::get_user_projects(&state, u.uid).await;
+    return Html(ViewUserTemplate{owner: u, projects}.render().unwrap()).into_response();
+}
+
+// Route /u/{username}/{project_slug}
+
+#[derive(Template)]
+#[template(path = "viewproject.html")]
+struct ViewProjectTemplate {
+    owner: User,
+    project: Project,
+    logs: Vec<LogEntry>,
+}
+
+async fn get_view_project(State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    let u = db::get_user_by_username(&state, &username).await;
+    if let None = u { return MessageTemplate{message: "User does not exist".to_string()}.render().unwrap().into_response(); }
+    let u = u.unwrap();
+
+    let project = db::get_project_by_slug(&state, u.uid, &project_slug).await;
+    if let None = project { return "Project not found".into_response(); }
+    let project = project.unwrap();
+
+    let logs = db::get_project_logs(&state, project.uid).await;
+
+    return Html(ViewProjectTemplate{owner: u, project, logs}.render().unwrap()).into_response();
+}
+
+// Route /u/{username}/{project_slug}/{log_number}
+
+#[derive(Template)]
+#[template(path = "viewlog.html")]
+struct ViewLogTemplate {
+    owner: User,
+    project: Project,
+    log: LogEntry,
+}
+
+async fn get_view_log(State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, String)>) -> impl IntoResponse {
+    let u = db::get_user_by_username(&state, &username).await;
+    if let None = u { return MessageTemplate{message: "User does not exist".to_string()}.render().unwrap().into_response(); }
+    let u = u.unwrap();
+
+    let project = db::get_project_by_slug(&state, u.uid, &project_slug).await;
+    if let None = project { return "Project not found".into_response(); }
+    let project = project.unwrap();
+
+    let log_number = log_number.parse::<i64>();
+    if let Err(e) = log_number { return e.to_string().into_response(); }
+    let log_number = log_number.unwrap();
+
+    let log = db::get_log_by_slug(&state, project.uid, log_number).await;
+    if let None = log { return "Log not found".into_response(); }
+    let log = log.unwrap();
+
+    return Html(ViewLogTemplate{owner: u, project, log}.render().unwrap()).into_response();
 }
