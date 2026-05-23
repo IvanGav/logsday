@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
-use tower_layer::Layer;
+use pulldown_cmark::{Parser, Options, html};
 
 mod db;
 mod slug;
@@ -24,6 +24,18 @@ pub fn get_weekday_name(mut cur_day: i64) -> &'static str {
     if cur_day < 0 { cur_day += 7; }
     if cur_day > 6 { cur_day -= 7; }
     return WEEKDAY_NAMES[cur_day as usize];
+}
+
+pub fn render_markdown_to_html(markdown_input: &str) -> String {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
+
+    let parser = Parser::new_ext(markdown_input, options);
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
+    return html_output;
 }
 
 #[derive(Clone)]
@@ -447,12 +459,18 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
     let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.jpg");
     let log_content_path = format!("{}/{}", &log_path, "index.md");
+    let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
     match db::create_log(&state, project.uid, &data.title, log_number, &log_path).await {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
                 if let Ok(_) = fs::write(log_thumbnail_path, &data.thumbnail.contents) {
+                    let html_render = render_markdown_to_html(&data.content);
                     if let Ok(_) = fs::write(log_content_path, &data.content) {
-                        return hx_redirect(format!("/project/{}", project_slug)).into_response();
+                        if let Ok(_) = fs::write(log_content_rendered_path, &html_render) {
+                            return hx_redirect(format!("/project/{}", project_slug)).into_response();
+                        } else {
+                            return "couldn't write rendered content".into_response();
+                        }
                     } else {
                         return "couldn't write content".into_response();
                     }

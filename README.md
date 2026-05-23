@@ -47,8 +47,8 @@ You will be able to upload a devlog exactly once a week.
   - `axum` for web server basics
   - `aksama` for template rendering
   - `tower_sessions` for easy sessions
+  - `pulldown-cmark` for markdown to html rendering (https://crates.io/crates/pulldown-cmark)
   - `axum_typed_multipart` for convenience, for now
-  - `pulldown-cmark` may be used for markdown to html rendering
 
 ## Notes
 

@@ -5,5 +5,5 @@
     <button class="link" hx-post="/del/log/{{ project_slug }}/{{ log.number }}" style="color:red" hx-target="#del-err">Delete This Log</button>
     <p id="del-err"></p>
     <img src="/uploads/{{ username }}/{{ project_slug }}/{{ log.number }}/thumb.jpg" alt="log thumbnail" height="150px">
-    <div hx-trigger="load" hx-get="/uploads/{{ username }}/{{ project_slug }}/{{ log.number }}/index.md"></div>
+    <div hx-trigger="load" hx-get="/uploads/{{ username }}/{{ project_slug }}/{{ log.number }}/index.html"></div>
 {% endblock %}
