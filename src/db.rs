@@ -186,7 +186,7 @@ pub async fn get_last_log(state: &AppState, user_uid: i64) -> Option<LogEntry> {
 
 pub async fn get_last_project_log(state: &AppState, user_uid: i64, project_slug: &str) -> Option<LogEntry> {
     let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.number, l.path, l.created_on
-        FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? AND p.slug = ? ORDER BY l.created_on DESC LIMIT 1;")
+        FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? AND p.slug = ? ORDER BY l.created_on DESC, l.number DESC LIMIT 1;")
     .bind(user_uid)
     .bind(project_slug)
     .fetch_optional(&state.db)

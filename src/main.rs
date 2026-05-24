@@ -11,7 +11,7 @@ use serde::Deserialize;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
-use pulldown_cmark::{Parser, Options, html};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 
 mod db;
 mod slug;
@@ -30,9 +30,62 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(markdown_input, options);
+
+    let parser = parser.map(|event| match event {
+        pulldown_cmark::Event::Html(text) | pulldown_cmark::Event::InlineHtml(text) => {
+            pulldown_cmark::Event::Text(text)
+        }
+        other => other,
+    });
+
+    let mut in_custom_video = false;
+    let mut video_url = "".to_string();
+
+    let parser = parser.filter_map(|event| {
+        match &event {
+            // Catch the start of an image tag
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                if dest_url.ends_with(".mp4") {
+                    in_custom_video = true;
+                    video_url = dest_url.to_string();
+                    let mime_type = "video/mp4";
+                    // Return the raw video player instead of the <img> tag
+                    let video_html = format!(
+                        r#"<video controls><source src="{}" type="{}"></video>"#, 
+                        video_url, mime_type
+                    );
+                    Some(Event::Html(video_html.into()))
+                } else {
+                    Some(event)
+                }
+            }
+
+            // Suppress the text inside the image brackets if it's a video
+            Event::Text(_) => {
+                if in_custom_video {
+                    None 
+                } else {
+                    Some(event)
+                }
+            }
+
+            // Catch the end of the image tag
+            Event::End(TagEnd::Image { .. }) => {
+                if in_custom_video {
+                    in_custom_video = false; // Reset state machine flag
+                    None // Drop the closing </img> token completely
+                } else {
+                    Some(event)
+                }
+            }
+
+            // Pass everything else through normally
+            _ => Some(event),
+        }
+    });
+
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
     return html_output;
@@ -482,7 +535,8 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
             }
         },
         Err(e) => {
-            return e.as_database_error().unwrap().to_string().into_response();
+            println!("{} ---- project/uid = '{}'/{}, log # = {}", e, project.title, project.uid, log_number);
+            return e.to_string().into_response();
         }
     }
 }
@@ -612,4 +666,45 @@ async fn get_view_log(State(state): State<AppState>, Path((username, project_slu
     let log = log.unwrap();
 
     return Html(ViewLogTemplate{owner: u, project, log}.render().unwrap()).into_response();
+}
+
+// Route /new/log/{project_slug}/upload
+
+#[derive(TryFromMultipart)]
+struct LogMediaUploadRequest {
+    #[form_data(field_name = "file", limit = "50MB")]
+    file: FieldData<Bytes>,
+}
+
+async fn post_new_log_media_upload(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+    let uid: Option<i64> = session.get("uid").await.unwrap();
+    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    let uid = uid.unwrap();
+
+    let u = db::get_user(&state, uid).await;
+    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    let u = u.unwrap();
+
+    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
+    if let None = project { return "Project not found".into_response(); }
+    let project = project.unwrap();
+
+    let content_type = &data.file.metadata.content_type;
+    if let None = content_type { return "Could not get file type".into_response(); }
+    let content_type: &str = content_type.as_ref().unwrap();
+
+    let log_number = db::get_last_project_log(&state, uid, &project.slug).await.unwrap_or_default().number + 1;
+    let file_name = if let Some(name) = &data.file.metadata.file_name { name } else { "file" };
+
+    if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
+    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
+    if let Ok(_) = tokio::fs::create_dir_all(&log_path).await {
+        if let Ok(_) = fs::write(format!("{}/{}", &log_path, &file_name), &data.file.contents) {
+            return "Ok".into_response();
+        } else {
+            return "couldn't write file".into_response();
+        }
+    } else {
+        return "couldn't create log dir".into_response();
+    }
 }
