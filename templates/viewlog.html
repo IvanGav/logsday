@@ -2,6 +2,6 @@
 
 {% block content %}
     <h2>{{ owner.displayname }}'s {{ project.title }}: Log {{ log.number}} - {{ log.title }}</h2>
-    <img src="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/thumb.jpg" alt="log thumbnail" height="150px">
+    <img src="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/thumb.webp" alt="log thumbnail" height="150px">
     <div hx-trigger="load" hx-get="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/index.html"></div>
 {% endblock %}

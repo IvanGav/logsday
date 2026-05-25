@@ -2,7 +2,7 @@
 
 {% block content %}
     <h2>{{ owner.displayname }}'s {{ project.title }}</h2>
-    <img src="/uploads/{{ owner.username }}/{{ project.slug }}/thumb.jpg" alt="project thumbnail" height="150px">
+    <img src="/uploads/{{ owner.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" height="150px">
     <div class="log-list">
         {% for log in logs %}
         <a class="log-listing" href="/u/{{ owner.username }}/{{ project.slug }}/{{ log.number }}">

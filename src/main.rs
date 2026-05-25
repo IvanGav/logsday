@@ -12,6 +12,8 @@ use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
+use std::io::Cursor;
+use image::ImageFormat;
 
 mod db;
 mod slug;
@@ -30,30 +32,29 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_SUPERSCRIPT);
+    options.insert(Options::ENABLE_SUBSCRIPT);
 
     let parser = Parser::new_ext(markdown_input, options);
 
     let parser = parser.map(|event| match event {
         pulldown_cmark::Event::Html(text) | pulldown_cmark::Event::InlineHtml(text) => {
-            pulldown_cmark::Event::Text(text)
+            pulldown_cmark::Event::Text(text) // convert html/inline html into just text - no html embedding at all allowed
         }
         other => other,
     });
 
-    let mut in_custom_video = false;
-    let mut video_url = "".to_string();
+    let mut is_video = false;
 
     let parser = parser.filter_map(|event| {
         match &event {
-            // Catch the start of an image tag
             Event::Start(Tag::Image { dest_url, .. }) => {
                 if dest_url.ends_with(".mp4") {
-                    in_custom_video = true;
-                    video_url = dest_url.to_string();
+                    is_video = true;
+                    let video_url = dest_url.to_string();
                     let mime_type = "video/mp4";
-                    // Return the raw video player instead of the <img> tag
                     let video_html = format!(
-                        r#"<video controls><source src="{}" type="{}"></video>"#, 
+                        r#"<video controls><source src="{}" type="{}"></source>"#,
                         video_url, mime_type
                     );
                     Some(Event::Html(video_html.into()))
@@ -62,26 +63,16 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
                 }
             }
 
-            // Suppress the text inside the image brackets if it's a video
-            Event::Text(_) => {
-                if in_custom_video {
-                    None 
-                } else {
-                    Some(event)
-                }
-            }
-
-            // Catch the end of the image tag
             Event::End(TagEnd::Image { .. }) => {
-                if in_custom_video {
-                    in_custom_video = false; // Reset state machine flag
-                    None // Drop the closing </img> token completely
+                if is_video {
+                    is_video = false;
+                    Some(Event::Html("</video>".into()))
                 } else {
                     Some(event)
                 }
             }
 
-            // Pass everything else through normally
+            // Event::Text(_) => { if is_video { None } else { Some(event) } }
             _ => Some(event),
         }
     });
@@ -89,6 +80,13 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
     return html_output;
+}
+
+pub fn convert_to_webp(raw_bytes: &[u8]) -> Result<Vec<u8>, image::ImageError> {
+    let img = image::load_from_memory(raw_bytes)?;
+    let mut webp_buffer = Vec::new();
+    img.write_to(&mut Cursor::new(&mut webp_buffer), ImageFormat::WebP)?;
+    Ok(webp_buffer)
 }
 
 #[derive(Clone)]
@@ -262,10 +260,15 @@ async fn post_new_project(State(state): State<AppState>, session: Session, data:
     if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
-    let thumbnail_path = format!("{}/{}", &project_path, "thumb.jpg");
+    let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
+
+    let webp_img = convert_to_webp(&data.thumbnail.contents);
+    if let Err(e) = webp_img { return e.to_string().into_response(); }
+    let webp_img = webp_img.unwrap();
+
     if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &project_path).await {
         if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
-            if let Ok(_) = fs::write(thumbnail_path, &data.thumbnail.contents) {
+            if let Ok(_) = fs::write(thumbnail_path, &webp_img) {
                 return hx_redirect("/project".into()).into_response();
             }
         }
@@ -510,13 +513,18 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
 
     if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
-    let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.jpg");
+    let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.webp");
     let log_content_path = format!("{}/{}", &log_path, "index.md");
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
+
+    let webp_img = convert_to_webp(&data.thumbnail.contents);
+    if let Err(e) = webp_img { return e.to_string().into_response(); }
+    let webp_img = webp_img.unwrap();
+
     match db::create_log(&state, project.uid, &data.title, log_number, &log_path).await {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
-                if let Ok(_) = fs::write(log_thumbnail_path, &data.thumbnail.contents) {
+                if let Ok(_) = fs::write(log_thumbnail_path, &webp_img) {
                     let html_render = render_markdown_to_html(&data.content);
                     if let Ok(_) = fs::write(log_content_path, &data.content) {
                         if let Ok(_) = fs::write(log_content_rendered_path, &html_render) {
