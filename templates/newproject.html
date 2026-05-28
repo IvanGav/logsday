@@ -3,9 +3,9 @@
 {% block content %}
     <script>
         function checkFileSize(input) {
-            const limit = 2 * 1024 * 1024; // 2MB
+            const limit = 10 * 1024 * 1024;
             if (input.files[0].size > limit) {
-                alert("This file is too big! Please choose an image under 2MB.");
+                alert("This file is too big! Please choose an image under 10 MB.");
                 input.value = ""; // Clear the input
             }
         }
@@ -16,7 +16,7 @@
         <input type="text" name="slug" placeholder="Project Slug"> <!-- TODO make it autofill with JS, unless a value is manually entered -->
         <textarea name="description"></textarea>
         
-        <input type="file" name="thumbnail" accept="image/png, image/jpg, image/jpeg, image/webp, image/gif" id="thumbnail-input" onchange="checkFileSize(this)">
+        <input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)">
         
         <button type="submit">Create Project</button>
     </form>

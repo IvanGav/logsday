@@ -11,13 +11,13 @@ use serde::Deserialize;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
-use std::io::Cursor;
-use image::ImageFormat;
+
+use crate::filestuff::MediaType;
 
 mod db;
 mod slug;
 mod week;
+mod filestuff;
 
 const ACCEPTED_THUMBNAIL_FILE_TYPES: [&str; 5] = ["image/png", "image/jpg", "image/jpeg", "image/gif", "image/webp"];
 const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satruday", "Sunday"];
@@ -26,67 +26,6 @@ pub fn get_weekday_name(mut cur_day: i64) -> &'static str {
     if cur_day < 0 { cur_day += 7; }
     if cur_day > 6 { cur_day -= 7; }
     return WEEKDAY_NAMES[cur_day as usize];
-}
-
-pub fn render_markdown_to_html(markdown_input: &str) -> String {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_SUPERSCRIPT);
-    options.insert(Options::ENABLE_SUBSCRIPT);
-
-    let parser = Parser::new_ext(markdown_input, options);
-
-    let parser = parser.map(|event| match event {
-        pulldown_cmark::Event::Html(text) | pulldown_cmark::Event::InlineHtml(text) => {
-            pulldown_cmark::Event::Text(text) // convert html/inline html into just text - no html embedding at all allowed
-        }
-        other => other,
-    });
-
-    let mut is_video = false;
-
-    let parser = parser.filter_map(|event| {
-        match &event {
-            Event::Start(Tag::Image { dest_url, .. }) => {
-                if dest_url.ends_with(".mp4") {
-                    is_video = true;
-                    let video_url = dest_url.to_string();
-                    let mime_type = "video/mp4";
-                    let video_html = format!(
-                        r#"<video controls><source src="{}" type="{}"></source>"#,
-                        video_url, mime_type
-                    );
-                    Some(Event::Html(video_html.into()))
-                } else {
-                    Some(event)
-                }
-            }
-
-            Event::End(TagEnd::Image { .. }) => {
-                if is_video {
-                    is_video = false;
-                    Some(Event::Html("</video>".into()))
-                } else {
-                    Some(event)
-                }
-            }
-
-            // Event::Text(_) => { if is_video { None } else { Some(event) } }
-            _ => Some(event),
-        }
-    });
-
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
-    return html_output;
-}
-
-pub fn convert_to_webp(raw_bytes: &[u8]) -> Result<Vec<u8>, image::ImageError> {
-    let img = image::load_from_memory(raw_bytes)?;
-    let mut webp_buffer = Vec::new();
-    img.write_to(&mut Cursor::new(&mut webp_buffer), ImageFormat::WebP)?;
-    Ok(webp_buffer)
 }
 
 #[derive(Clone)]
@@ -116,6 +55,7 @@ async fn main() {
         .route("/project/{project_slug}/{log_number}", get(get_edit_log))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
+        .route("/new/log/{project_slug}/upload", post(post_new_log_media_upload))
         .route("/del/project/{project_slug}", post(post_del_project))
         .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
         .route("/u/{username}", get(get_view_user))
@@ -130,7 +70,7 @@ async fn main() {
     let app = NormalizePath::trim_trailing_slash(app.into_service());
     let app = app.into_make_service();
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3009").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -138,7 +78,7 @@ fn generic_error() -> impl IntoResponse {
     return Html("Oops, something went wrong... Go touch some logs in the meantime.").into_response();
 }
 
-fn hx_redirect(route: String) -> impl IntoResponse {
+fn hx_redirect(route: &str) -> impl IntoResponse {
     return ([("HX-Redirect", route)], "Redirecting...").into_response();
 }
 
@@ -240,36 +180,36 @@ struct NewProjectRequest {
     slug: String,
     #[form_data(field_name = "description")]
     description: String,
-    #[form_data(field_name = "thumbnail", limit = "2MB")]
+    #[form_data(field_name = "thumbnail", limit = "10MB")]
     thumbnail: FieldData<Bytes>,
 }
 
 async fn post_new_project(State(state): State<AppState>, session: Session, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    if let None = uid { return hx_redirect("/login").into_response(); }
     let uid = uid.unwrap();
 
     let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    if let None = u { return hx_redirect("/login").into_response(); }
     let u = u.unwrap();
 
     let content_type = &data.thumbnail.metadata.content_type;
     if let None = content_type { return "Could not get file type".into_response(); }
     let content_type: &str = content_type.as_ref().unwrap();
 
-    if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
+    if filestuff::mime_media_type(content_type) == MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
 
-    let webp_img = convert_to_webp(&data.thumbnail.contents);
+    let webp_img = filestuff::convert_to_webp(&data.thumbnail.contents);
     if let Err(e) = webp_img { return e.to_string().into_response(); }
     let webp_img = webp_img.unwrap();
 
     if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &project_path).await {
         if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
             if let Ok(_) = fs::write(thumbnail_path, &webp_img) {
-                return hx_redirect("/project".into()).into_response();
+                return hx_redirect("/project").into_response();
             }
         }
     }
@@ -312,7 +252,7 @@ async fn post_signup(
                 if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
                 let uid = u.unwrap().uid;
                 session.insert("uid", uid).await.unwrap();
-                return hx_redirect("/project".into()).into_response();
+                return hx_redirect("/project").into_response();
             } else {
                 return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create user directory").into_response();
             }
@@ -356,7 +296,7 @@ async fn post_login(
     if let Some(u) = user {
         if u.password == form.password {
             session.insert("uid", u.uid).await.unwrap();
-            return hx_redirect("/project".into()).into_response();
+            return hx_redirect("/project").into_response();
         }
     }
     return "Incorrect Username or Password".into_response();
@@ -401,7 +341,7 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             let project = project.unwrap();
 
             let u = db::get_user(&state, uid).await;
-            if let None = u { return hx_redirect("/login".into()).into_response(); }
+            if let None = u { return hx_redirect("/login").into_response(); }
             let username = u.unwrap().username;
 
             let logs = db::get_project_logs(&state, project.uid).await;
@@ -488,17 +428,17 @@ struct NewLogRequest {
     title: String,
     #[form_data(field_name = "content")]
     content: String,
-    #[form_data(field_name = "thumbnail", limit = "2MB")]
+    #[form_data(field_name = "thumbnail", limit = "10MB")]
     thumbnail: FieldData<Bytes>,
 }
 
 async fn post_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<NewLogRequest>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    if let None = uid { return hx_redirect("/login").into_response(); }
     let uid = uid.unwrap();
 
     let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    if let None = u { return hx_redirect("/login").into_response(); }
     let u = u.unwrap();
 
     let project = db::get_project_by_slug(&state, uid, &project_slug).await;
@@ -517,7 +457,7 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
     let log_content_path = format!("{}/{}", &log_path, "index.md");
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
 
-    let webp_img = convert_to_webp(&data.thumbnail.contents);
+    let webp_img = filestuff::convert_to_webp(&data.thumbnail.contents);
     if let Err(e) = webp_img { return e.to_string().into_response(); }
     let webp_img = webp_img.unwrap();
 
@@ -525,10 +465,10 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
                 if let Ok(_) = fs::write(log_thumbnail_path, &webp_img) {
-                    let html_render = render_markdown_to_html(&data.content);
+                    let html_render = filestuff::render_markdown_to_html(&data.content);
                     if let Ok(_) = fs::write(log_content_path, &data.content) {
                         if let Ok(_) = fs::write(log_content_rendered_path, &html_render) {
-                            return hx_redirect(format!("/project/{}", project_slug)).into_response();
+                            return hx_redirect(&format!("/project/{}", project_slug)).into_response();
                         } else {
                             return "couldn't write rendered content".into_response();
                         }
@@ -553,11 +493,11 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
 
 async fn post_del_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    if let None = uid { return hx_redirect("/login").into_response(); }
     let uid = uid.unwrap();
 
     let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    if let None = u { return hx_redirect("/login").into_response(); }
     let u = u.unwrap();
 
     let project = db::get_project_by_slug(&state, uid, &project_slug).await;
@@ -568,7 +508,7 @@ async fn post_del_project(session: Session, State(state): State<AppState>, Path(
         if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}", u.username, &project_slug)).await {
             return e.to_string().into_response();
         }
-        return hx_redirect("/project".to_string()).into_response();
+        return hx_redirect("/project").into_response();
     }
     return "Project does not exist or cannot be deleted".into_response();
 }
@@ -577,11 +517,11 @@ async fn post_del_project(session: Session, State(state): State<AppState>, Path(
 
 async fn post_del_log(session: Session, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String,String)>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    if let None = uid { return hx_redirect("/login").into_response(); }
     let uid = uid.unwrap();
 
     let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    if let None = u { return hx_redirect("/login").into_response(); }
     let u = u.unwrap();
 
     let project = db::get_project_by_slug(&state, uid, &project_slug).await;
@@ -600,7 +540,7 @@ async fn post_del_log(session: Session, State(state): State<AppState>, Path((pro
         if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}/{}", u.username, &project_slug, log_number)).await {
             return e.to_string().into_response();
         }
-        return hx_redirect(format!("/project/{}", project_slug)).into_response();
+        return hx_redirect(&format!("/project/{}", project_slug)).into_response();
     }
     return "Log does not exist or cannot be deleted".into_response();
 }
@@ -680,39 +620,49 @@ async fn get_view_log(State(state): State<AppState>, Path((username, project_slu
 
 #[derive(TryFromMultipart)]
 struct LogMediaUploadRequest {
-    #[form_data(field_name = "file", limit = "50MB")]
+    #[form_data(field_name = "file", limit = "100MB")]
     file: FieldData<Bytes>,
 }
 
+// does not return an hx_upload; return an error code that will be displayed with js
 async fn post_new_log_media_upload(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
     let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login".into()).into_response(); }
+    if let None = uid { return hx_redirect("/login").into_response(); }
     let uid = uid.unwrap();
 
     let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login".into()).into_response(); }
+    if let None = u { return hx_redirect("/login").into_response(); }
     let u = u.unwrap();
 
     let project = db::get_project_by_slug(&state, uid, &project_slug).await;
-    if let None = project { return "Project not found".into_response(); }
-    let project = project.unwrap();
+    if let None = project { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
+    // let project = project.unwrap();
 
     let content_type = &data.file.metadata.content_type;
-    if let None = content_type { return "Could not get file type".into_response(); }
+    if let None = content_type { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not get file type").into_response(); }
     let content_type: &str = content_type.as_ref().unwrap();
+    if filestuff::mime_media_type(&content_type) == MediaType::Unsupported {
+        return (StatusCode::BAD_REQUEST, "unsupported file type").into_response();
+    }
 
-    let log_number = db::get_last_project_log(&state, uid, &project.slug).await.unwrap_or_default().number + 1;
-    let file_name = if let Some(name) = &data.file.metadata.file_name { name } else { "file" };
+    let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
 
-    if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
+    let file_name = data.file.metadata.file_name.as_ref().unwrap();
+    if !filestuff::filename_valid(file_name) {
+        return (StatusCode::BAD_REQUEST, "invalid username").into_response();
+    }
+    let file_name = filestuff::normalize_extension(file_name);
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
-    if let Ok(_) = tokio::fs::create_dir_all(&log_path).await {
-        if let Ok(_) = fs::write(format!("{}/{}", &log_path, &file_name), &data.file.contents) {
-            return "Ok".into_response();
+    let log_file_path = format!("{}/{}", &log_path, &file_name);
+    let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &u.username, &project_slug, &log_number, &file_name);
+
+    if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
+        if let Ok(_) = fs::write(log_file_path, &data.file.contents) {
+            return (StatusCode::OK, log_file_web_path).into_response();
         } else {
-            return "couldn't write file".into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "can't write file").into_response();
         }
     } else {
-        return "couldn't create log dir".into_response();
+        return (StatusCode::INTERNAL_SERVER_ERROR, "can't create log dir").into_response();
     }
 }

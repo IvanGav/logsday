@@ -3,19 +3,119 @@
 {% block content %}
     <script>
         function checkFileSize(input) {
-            const limit = 2 * 1024 * 1024; // 2MB
+            const limit = 10 * 1024 * 1024;
             if (input.files[0].size > limit) {
-                alert("This file is too big! Please choose an image under 2MB.");
+                alert("This file is too big! Please choose an image under 10 MB.");
                 input.value = ""; // Clear the input
+            }
+        }
+        function normalizeExtension(filename) {
+            let split = filename.split('.');
+            let ext = split[split.length-1].toLowerCase();
+            switch(ext) {
+                case "jpeg": { ext = "jpg"; }
+                default: {}
+            }
+            split[split.length-1] = ext;
+            return split.join(".");
+        }
+        function getUploadPath() {
+            let uploadPath = window.location.pathname;
+            if(!uploadPath.endsWith('/')) { uploadPath += "/"; }
+            uploadPath += "upload";
+            return uploadPath;
+        }
+        function getDeletePath() {
+            throw new Error("TODO");
+        }
+        function getUploadedFilesNewListItemDesc(filename, filesize, error = false) {
+            let sizestr = "?MB";
+            if(filesize > 1000000) {
+                sizestr = (filesize/1000000).toFixed(2) + "MB";
+            } else if(filesize > 1000) {
+                sizestr = (filesize/1000).toFixed(2) + "KB";
+            } else {
+                sizestr = filesize + "B";
+            }
+            let desc = document.createElement("p");
+            let txt;
+            if(!error) { txt = document.createTextNode("" + filename + " (" + sizestr + ")"); }
+            else { txt = document.createTextNode("Failed to upload (" + filename + ")"); }
+            let button = document.createElement("button");
+            button.setAttribute("onclick", "deleteMedia(this.parentElement.parentElement)");
+            button.appendChild(document.createTextNode("delete"));
+            desc.appendChild(txt);
+            desc.appendChild(button);
+            return desc;
+        }
+        function getUploadedFilesNewListItem(filename) {
+            let li = document.createElement("li");
+            li.setAttribute("uploadedfilename", filename);
+            let txt = document.createTextNode("Uploading " + filename + "...");
+            li.appendChild(txt);
+            return li;
+        }
+        async function uploadAndInsertMedia(input) {
+            let uploaded = document.getElementById("uploadedFiles");
+            let uploadPromises = [];
+            for (let i = 0; i < input.files.length; i++) {
+                let file = input.files[i];
+                let filename = normalizeExtension(file.name);
+                let li = uploaded.appendChild(getUploadedFilesNewListItem(filename));
+                uploadPromises.push(uploadFile(li, file, filename));
+            }
+            input.value = "";
+            try {
+                let savedPaths = await Promise.allSettled(uploadPromises); // TODO unhappy with that; shouldn't wait for all promises
+                let insert_embeds = "";
+                for (let path of savedPaths) {
+                    if (path) { // if sucessful
+                        insert_embeds += "\n![](" + path.value + ")";
+                    }
+                }
+                document.getElementsByName("content")[0].value += insert_embeds;
+            } catch (globalError) {
+                console.error("Some promise got rejected when uploading files", globalError);
+            }
+        }
+        async function deleteMedia(li) {
+            let uploaded = document.getElementById("uploadedFiles");
+            li.innerText = 'Removing "' + li.getAttribute("uploadedfilename") + '"...';
+            // TODO POST for removing the file
+            alert("Not implemented yet.");
+            li.remove();
+        }
+        async function uploadFile(li, file, filename) {
+            const formData = new FormData();
+            formData.append("file", file, filename);
+            try {
+                let uploadPath = getUploadPath();
+                const response = await fetch(uploadPath, {
+                    // No 'Content-Type' header here as fetch handles it automatically
+                    method: "POST",
+                    body: formData
+                });
+                if (!response.ok) throw new Error("Upload failed");
+                li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, file.size));
+                return await response.text();
+            } catch (error) {
+                console.log(error);
+                li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, file.size, true));
+                return null;
             }
         }
     </script>
 
+    <ul id="uploadedFiles"></ul>
     <form hx-post="/new/log/{{ project.slug }}" hx-encoding="multipart/form-data" hx-target="#err">
         <input type="text" name="title" placeholder="Log Title" required>
-        <input type="file" name="thumbnail" accept="image/png, image/jpg, image/jpeg, image/webp, image/gif" id="thumbnail-input" onchange="checkFileSize(this)">
+        <input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)">
         <textarea name="content" required></textarea>
         <button type="submit">Create Log for {{ project.title }}</button>
     </form>
+    <div>
+        <p>Upload Media</p>
+        <input type="file" multiple name="media" accept="image/*, video/*" id="media-upload" onchange="uploadAndInsertMedia(this)">
+    </div>
     <p id="err"></p>
 {% endblock %}

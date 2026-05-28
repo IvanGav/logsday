@@ -55,6 +55,7 @@ You will be able to upload a devlog exactly once a week.
 - A lot of research for this project was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
 - `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page. Any exceptions will be noted here and in the code.
 - Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
+- You will not be able to private a project/log. You can unlist it, but not private.
 
 ## SQLite Tables
 ```sql
