@@ -57,6 +57,16 @@ You will be able to upload a devlog exactly once a week.
 - Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
 - You will not be able to private a project/log. You can unlist it, but not private.
 
+## Comprehensive .md rendering rules
+
+- CommonMark spec
+  - server side uses `pulldown_cmark` with the following options enabled
+- Additional options:
+  - ENABLE_TABLES - idk the syntax for tables; may not be included later, if difficult to do
+  - ~strikethrough~
+- Additional features:
+  - `![](name.ext)` represents a multimedia embed, depending on `.ext`. For supported extensions, refer to `filestuff::media_type`
+
 ## SQLite Tables
 ```sql
 CREATE TABLE users (

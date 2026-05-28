@@ -68,8 +68,6 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_SUPERSCRIPT);
-    options.insert(Options::ENABLE_SUBSCRIPT);
 
     let parser = Parser::new_ext(markdown_input, options);
 

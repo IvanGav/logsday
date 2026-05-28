@@ -26,7 +26,10 @@
             return uploadPath;
         }
         function getDeletePath() {
-            throw new Error("TODO");
+            let uploadPath = window.location.pathname;
+            if(!uploadPath.endsWith('/')) { uploadPath += "/"; }
+            uploadPath += "delete";
+            return uploadPath;
         }
         function getUploadedFilesNewListItemDesc(filename, filesize, error = false) {
             let sizestr = "?MB";
@@ -70,7 +73,7 @@
                 let insert_embeds = "";
                 for (let path of savedPaths) {
                     if (path) { // if sucessful
-                        insert_embeds += "\n![](" + path.value + ")";
+                        insert_embeds += "\n![](" + path.value + ")\n";
                     }
                 }
                 document.getElementsByName("content")[0].value += insert_embeds;
@@ -80,10 +83,16 @@
         }
         async function deleteMedia(li) {
             let uploaded = document.getElementById("uploadedFiles");
-            li.innerText = 'Removing "' + li.getAttribute("uploadedfilename") + '"...';
-            // TODO POST for removing the file
-            alert("Not implemented yet.");
-            li.remove();
+            let filename = li.getAttribute("uploadedfilename");
+            li.innerText = 'Removing "' + filename + '"...';
+            try {
+                const response = await fetch(`${getDeletePath()}/${encodeURIComponent(filename)}`, { method: "DELETE" });
+                if (!response.ok) throw new Error("Delete failed"); // should not happen
+                li.remove();
+            } catch (error) {
+                console.log(error);
+                li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0)); // also should not happen
+            }
         }
         async function uploadFile(li, file, filename) {
             const formData = new FormData();

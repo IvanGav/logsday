@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    Form, Router, ServiceExt, body::Bytes, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{get, post}
+    Form, Router, ServiceExt, body::Bytes, extract::DefaultBodyLimit, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{delete, get, post}
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
@@ -56,6 +56,7 @@ async fn main() {
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/new/log/{project_slug}/upload", post(post_new_log_media_upload))
+        .route("/new/log/{project_slug}/delete/{delete_filename}", delete(delete_log_media_delete))
         .route("/del/project/{project_slug}", post(post_del_project))
         .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
         .route("/u/{username}", get(get_view_user))
@@ -65,6 +66,7 @@ async fn main() {
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
         .layer(session_layer)
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // do not allow uploads of over 100MB; should also be enforced on client side
         .with_state(state);
 
     let app = NormalizePath::trim_trailing_slash(app.into_service());
@@ -626,36 +628,18 @@ struct LogMediaUploadRequest {
 
 // does not return an hx_upload; return an error code that will be displayed with js
 async fn post_new_log_media_upload(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
-    let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login").into_response(); }
-    let uid = uid.unwrap();
-
-    let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login").into_response(); }
-    let u = u.unwrap();
-
-    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
-    if let None = project { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
-    // let project = project.unwrap();
-
-    let content_type = &data.file.metadata.content_type;
-    if let None = content_type { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not get file type").into_response(); }
-    let content_type: &str = content_type.as_ref().unwrap();
-    if filestuff::mime_media_type(&content_type) == MediaType::Unsupported {
-        return (StatusCode::BAD_REQUEST, "unsupported file type").into_response();
-    }
-
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
+    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    if let None = db::get_project_by_slug(&state, uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
     let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
-
+    let content_type = if let Some(t) = &data.file.metadata.content_type { t } else { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not get file type").into_response(); };
+    if filestuff::mime_media_type(&content_type) == MediaType::Unsupported { return (StatusCode::BAD_REQUEST, "unsupported file type").into_response(); }
     let file_name = data.file.metadata.file_name.as_ref().unwrap();
-    if !filestuff::filename_valid(file_name) {
-        return (StatusCode::BAD_REQUEST, "invalid username").into_response();
-    }
+    if !filestuff::filename_valid(file_name) { return (StatusCode::BAD_REQUEST, "invalid filename").into_response(); }
     let file_name = filestuff::normalize_extension(file_name);
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
     let log_file_path = format!("{}/{}", &log_path, &file_name);
     let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &u.username, &project_slug, &log_number, &file_name);
-
     if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
         if let Ok(_) = fs::write(log_file_path, &data.file.contents) {
             return (StatusCode::OK, log_file_web_path).into_response();
@@ -664,5 +648,26 @@ async fn post_new_log_media_upload(session: Session, State(state): State<AppStat
         }
     } else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't create log dir").into_response();
+    }
+}
+
+// Route /new/log/{project_slug}/delete/{filename_to_delete}
+
+async fn delete_log_media_delete(session: Session, State(state): State<AppState>, Path((project_slug, delete_filename)): Path<(String, String)>) -> impl IntoResponse {
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
+    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    if let None = db::get_project_by_slug(&state, uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
+    let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
+    let file_name = delete_filename.as_ref();
+    if !filestuff::filename_valid(file_name) { return (StatusCode::BAD_REQUEST, "invalid filename").into_response(); }
+    let file_name = filestuff::normalize_extension(file_name);
+    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
+    let log_file_path = format!("{}/{}", &log_path, &file_name);
+    match fs::remove_file(&log_file_path) {
+        Ok(_) => { return (StatusCode::OK, "File deleted successfully").into_response(); },
+        Err(e) => {
+            println!("Failed to delete file {}: {}", log_file_path, e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "could not delete file").into_response();
+        }
     }
 }
