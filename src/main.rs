@@ -138,10 +138,16 @@ struct MessageTemplate {
 
 #[derive(Template)]
 #[template(path = "landing.html")]
-struct LandingTemplate;
+struct LandingTemplate {
+    user: Option<User>,
+    display_users: Vec<User>,
+}
 
-async fn landing() -> impl IntoResponse {
-    let render = LandingTemplate.render();
+async fn landing(session: Session, State(state): State<AppState>) -> impl IntoResponse {
+    let user = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { db::get_user(&state, uid).await } else { None };
+    let display_users = db::get_all_users(&state).await;
+
+    let render = LandingTemplate { user, display_users }.render();
     if let Ok(render) = render {
         return Html(render).into_response();
     }
@@ -199,7 +205,7 @@ async fn post_new_project(State(state): State<AppState>, session: Session, data:
     if let None = content_type { return "Could not get file type".into_response(); }
     let content_type: &str = content_type.as_ref().unwrap();
 
-    if filestuff::mime_media_type(content_type) == MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
+    if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
     if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
@@ -231,11 +237,13 @@ async fn get_signup() -> impl IntoResponse {
     return generic_error().into_response();
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct SignupSubmission {
-    username: String,
     displayname: String,
+    username: String,
     password: String,
+    week_len: i64,
+    logsday_weekday: i64,
 }
 
 async fn post_signup(
@@ -243,10 +251,14 @@ async fn post_signup(
     State(state): State<AppState>,
     Form(form): Form<SignupSubmission>,
 ) -> impl IntoResponse {
+    println!("--- {:?}", form);
+    println!("valid?: {:?}", slug::slug_valid(&form.username));
     if !slug::slug_valid(&form.username) {
-        return generic_error().into_response();
+        return "invalid username".into_response();
     }
-    let result = db::create_user(&state, &form.username, &form.displayname, &form.password, 8, 3).await;
+    if (form.week_len != 7 && form.week_len != 8) || form.logsday_weekday < 0 || form.logsday_weekday > 6 { return "no.".into_response(); }
+    let logsday_weekday = if form.week_len == 7 { form.logsday_weekday } else { form.logsday_weekday + 1 };
+    let result = db::create_user(&state, &form.username, &form.displayname, &form.password, form.week_len, logsday_weekday).await;
     match result {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(format!("uploads/users/{}", form.username)).await {
@@ -407,9 +419,13 @@ async fn get_new_log(session: Session, State(state): State<AppState>, Path(proje
 
     let user = db::get_user(&state, uid).await.unwrap();
 
+    if !week::is_logsday(user.week_len, user.logsday_weekday) && uid != 1 { // user 1 is allowed to upload whenever; debug feature
+        return Html(MessageTemplate { message: "Not your Logsday! Go touch some logs!".into() }.render().unwrap()).into_response();
+    }
+
     if let Some(log) = db::get_last_log(&state, uid).await {
         if uid != 1 && week::days_since(log.created_on) < user.week_len { // user 1 is allowed to upload whenever; debug feature
-            return Html("You've already uploaded a log this week! Go touch some logs and come back next week!").into_response();
+            return Html(MessageTemplate { message: "You've already uploaded a log this week! Go touch some logs and come back next week!".into() }.render().unwrap()).into_response();
         }
     }
 
@@ -446,6 +462,9 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
     let project = db::get_project_by_slug(&state, uid, &project_slug).await;
     if let None = project { return "Project not found".into_response(); }
     let project = project.unwrap();
+
+    if !week::is_logsday(u.week_len, u.logsday_weekday) && uid != 1 { return generic_error().into_response(); }
+    if let Some(log) = db::get_last_log(&state, uid).await { if uid != 1 && week::days_since(log.created_on) < u.week_len { return generic_error().into_response(); } }
 
     let content_type = &data.thumbnail.metadata.content_type;
     if let None = content_type { return "Could not get file type".into_response(); }

@@ -41,6 +41,24 @@ pub fn is_logsday(week_len: i64, logsday_weekday: i64) -> bool {
     return weekday(week_len) == logsday_weekday;
 }
 
+pub fn time_left_today() -> i64 {
+    return today() + DAY_SECS - now();
+}
+
+pub fn time_until_next_logsday(week_len: i64, logsday_weekday: i64) -> i64 {
+    let mut days = logsday_weekday - weekday(week_len);
+    if days < 0 { days += 7; }
+    return days * DAY_SECS - (now() - today());
+}
+
+pub fn pretty_print(duration: i64) -> String {
+    let days = duration / (60 * 60 * 24);
+    let hours = (duration % (60 * 60 * 24)) / (60 * 60);
+    let minutes = (duration % (60 * 60)) / 60;
+    let seconds = duration % 60;
+    return format!("{}d, {}h, {}m, {}s", days, hours, minutes, seconds);
+}
+
 // return the number of days that have passed since the given day (or some time in the day)
 pub fn days_since(time: UnixTime) -> i64 {
     let today = day_num();

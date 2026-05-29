@@ -31,7 +31,7 @@ pub fn mime_media_type(mime_type: &str) -> MediaType {
         "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/svg+xml" => MediaType::Image,
         "video/mp4" | "video/mpeg" | "video/webm" | "video/ogg" | "video/quicktime" => MediaType::Video,
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/webm" => MediaType::Audio,
-        _ => MediaType::Unsupported,
+        u => { println!("{u}"); MediaType::Unsupported },
     }
 }
 

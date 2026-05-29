@@ -15,8 +15,8 @@
 pub fn slug_valid(slug: &str) -> bool {
     for c in slug.chars() {
         match c {
-            'a'..'z' | '0'..'9' | '_' | '-' => {},
-            _ => { return false; }
+            'a'..='z' | '0'..='9' | '_' | '-' => {},
+            c=> { return false; }
         }
     }
     return true;

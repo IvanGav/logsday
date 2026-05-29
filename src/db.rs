@@ -196,3 +196,13 @@ pub async fn get_last_project_log(state: &AppState, user_uid: i64, project_slug:
     }
     return log.unwrap_or(None);
 }
+
+pub async fn get_all_users(state: &AppState) -> Vec<User> {
+    let users = sqlx::query_as::<_,User>("SELECT * FROM users;")
+        .fetch_all(&state.db)
+        .await;
+    if let Err(e) = &users {
+        println!("DB ERROR: {}", e);
+    }
+    return users.unwrap_or(vec![]);
+}
