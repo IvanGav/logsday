@@ -193,7 +193,9 @@ struct NewProjectRequest {
 }
 
 async fn post_new_project(State(state): State<AppState>, session: Session, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
-    let uid: Option<i64> = session.get("uid").await.unwrap();
+    if data.title.len() > 255 || data.slug.len() > 255 { return "title or slug too long".into_response(); }
+
+    let uid = session.get::<i64>("uid").await.unwrap();
     if let None = uid { return hx_redirect("/login").into_response(); }
     let uid = uid.unwrap();
 
@@ -251,8 +253,7 @@ async fn post_signup(
     State(state): State<AppState>,
     Form(form): Form<SignupSubmission>,
 ) -> impl IntoResponse {
-    println!("--- {:?}", form);
-    println!("valid?: {:?}", slug::slug_valid(&form.username));
+    if form.displayname.len() > 255 || form.username.len() > 255 || form.password.len() > 1023 { return "displayname, username or password are too long".into_response(); }
     if !slug::slug_valid(&form.username) {
         return "invalid username".into_response();
     }
@@ -413,31 +414,19 @@ struct NewLogTemplate {
 }
 
 async fn get_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
-    let uid = session.get("uid").await.unwrap();
-    if let None = uid { return Redirect::to("/login").into_response(); }
-    let uid = uid.unwrap();
-
-    let user = db::get_user(&state, uid).await.unwrap();
-
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
+    let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
     if !week::is_logsday(user.week_len, user.logsday_weekday) && uid != 1 { // user 1 is allowed to upload whenever; debug feature
         return Html(MessageTemplate { message: "Not your Logsday! Go touch some logs!".into() }.render().unwrap()).into_response();
     }
-
     if let Some(log) = db::get_last_log(&state, uid).await {
         if uid != 1 && week::days_since(log.created_on) < user.week_len { // user 1 is allowed to upload whenever; debug feature
             return Html(MessageTemplate { message: "You've already uploaded a log this week! Go touch some logs and come back next week!".into() }.render().unwrap()).into_response();
         }
     }
-
-    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
-    if let None = project { return Html("Project does not exist").into_response(); }
-    let project = project.unwrap();
-
-    let render = NewLogTemplate{project}.render();
-    if let Ok(render) = render {
-        return Html(render).into_response();
-    }
-    return generic_error().into_response();
+    let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
+    let render = NewLogTemplate{project}.render().unwrap();
+    return Html(render).into_response();
 }
 
 #[derive(TryFromMultipart)]
@@ -451,37 +440,21 @@ struct NewLogRequest {
 }
 
 async fn post_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<NewLogRequest>) -> impl IntoResponse {
-    let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login").into_response(); }
-    let uid = uid.unwrap();
-
-    let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login").into_response(); }
-    let u = u.unwrap();
-
-    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
-    if let None = project { return "Project not found".into_response(); }
-    let project = project.unwrap();
-
+    if data.title.len() > 255 { return "title too long".into_response(); }
+    if data.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
+    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
     if !week::is_logsday(u.week_len, u.logsday_weekday) && uid != 1 { return generic_error().into_response(); }
     if let Some(log) = db::get_last_log(&state, uid).await { if uid != 1 && week::days_since(log.created_on) < u.week_len { return generic_error().into_response(); } }
-
-    let content_type = &data.thumbnail.metadata.content_type;
-    if let None = content_type { return "Could not get file type".into_response(); }
-    let content_type: &str = content_type.as_ref().unwrap();
-
+    let content_type: &str = if let Some(t) = &data.thumbnail.metadata.content_type { t } else { return "Could not get file type".into_response(); };
     let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
-
     if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
     let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.webp");
     let log_content_path = format!("{}/{}", &log_path, "index.md");
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
-
-    let webp_img = filestuff::convert_to_webp(&data.thumbnail.contents);
-    if let Err(e) = webp_img { return e.to_string().into_response(); }
-    let webp_img = webp_img.unwrap();
-
+    let webp_img = match filestuff::convert_to_webp(&data.thumbnail.contents) { Ok(img) => img, Err(e) => return e.to_string().into_response() };
     match db::create_log(&state, project.uid, &data.title, log_number, &log_path).await {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
@@ -513,18 +486,9 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
 // Route /del/project/{project_slug}
 
 async fn post_del_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
-    let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login").into_response(); }
-    let uid = uid.unwrap();
-
-    let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login").into_response(); }
-    let u = u.unwrap();
-
-    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
-    if let None = project { return "Project not found".into_response(); }
-    let project = project.unwrap();
-
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
+    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
     if db::delete_project(&state, project.uid).await {
         if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}", u.username, &project_slug)).await {
             return e.to_string().into_response();
@@ -537,26 +501,11 @@ async fn post_del_project(session: Session, State(state): State<AppState>, Path(
 // Route /del/log/{project_slug}/{log_number}
 
 async fn post_del_log(session: Session, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String,String)>) -> impl IntoResponse {
-    let uid: Option<i64> = session.get("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login").into_response(); }
-    let uid = uid.unwrap();
-
-    let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login").into_response(); }
-    let u = u.unwrap();
-
-    let project = db::get_project_by_slug(&state, uid, &project_slug).await;
-    if let None = project { return "Project not found".into_response(); }
-    let project = project.unwrap();
-
-    let log_number = log_number.parse::<i64>();
-    if let Err(e) = log_number { return e.to_string().into_response(); }
-    let log_number = log_number.unwrap();
-
-    let log = db::get_log_by_slug(&state, project.uid, log_number).await;
-    if let None = log { return "Log not found".into_response(); }
-    let log = log.unwrap();
-
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
+    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
+    let log_number = match log_number.parse::<i64>() { Ok(num) => num, Err(e) => return e.to_string().into_response() };
+    let log = if let Some(log) = db::get_log_by_slug(&state, project.uid, log_number).await { log } else { return "Log not found".into_response(); };
     if db::delete_log(&state, log.uid).await {
         if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}/{}", u.username, &project_slug, log_number)).await {
             return e.to_string().into_response();
@@ -576,9 +525,7 @@ struct ViewUserTemplate {
 }
 
 async fn get_view_user(State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
-    let u = db::get_user_by_username(&state, &username).await;
-    if let None = u { return MessageTemplate{message: "User does not exist".to_string()}.render().unwrap().into_response(); }
-    let u = u.unwrap();
+    let u = if let Some(u) = db::get_user_by_username(&state, &username).await { u } else { return Html(MessageTemplate{message: "User does not exist".to_string()}.render().unwrap()).into_response(); };
     let projects = db::get_user_projects(&state, u.uid).await;
     return Html(ViewUserTemplate{owner: u, projects}.render().unwrap()).into_response();
 }
@@ -594,16 +541,9 @@ struct ViewProjectTemplate {
 }
 
 async fn get_view_project(State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
-    let u = db::get_user_by_username(&state, &username).await;
-    if let None = u { return MessageTemplate{message: "User does not exist".to_string()}.render().unwrap().into_response(); }
-    let u = u.unwrap();
-
-    let project = db::get_project_by_slug(&state, u.uid, &project_slug).await;
-    if let None = project { return "Project not found".into_response(); }
-    let project = project.unwrap();
-
+    let u = if let Some(u) = db::get_user_by_username(&state, &username).await { u } else { return Html(MessageTemplate{message: "User does not exist".to_string()}.render().unwrap()).into_response(); };
+    let project = if let Some(p) = db::get_project_by_slug(&state, u.uid, &project_slug).await { p } else { return "Project not found".into_response(); };
     let logs = db::get_project_logs(&state, project.uid).await;
-
     return Html(ViewProjectTemplate{owner: u, project, logs}.render().unwrap()).into_response();
 }
 
@@ -618,22 +558,10 @@ struct ViewLogTemplate {
 }
 
 async fn get_view_log(State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, String)>) -> impl IntoResponse {
-    let u = db::get_user_by_username(&state, &username).await;
-    if let None = u { return MessageTemplate{message: "User does not exist".to_string()}.render().unwrap().into_response(); }
-    let u = u.unwrap();
-
-    let project = db::get_project_by_slug(&state, u.uid, &project_slug).await;
-    if let None = project { return "Project not found".into_response(); }
-    let project = project.unwrap();
-
-    let log_number = log_number.parse::<i64>();
-    if let Err(e) = log_number { return e.to_string().into_response(); }
-    let log_number = log_number.unwrap();
-
-    let log = db::get_log_by_slug(&state, project.uid, log_number).await;
-    if let None = log { return "Log not found".into_response(); }
-    let log = log.unwrap();
-
+    let u = if let Some(u) = db::get_user_by_username(&state, &username).await { u } else { return Html(MessageTemplate{message: "User does not exist".to_string()}.render().unwrap()).into_response(); };
+    let project = if let Some(p) = db::get_project_by_slug(&state, u.uid, &project_slug).await { p } else { return "Project not found".into_response(); };
+    let log_number = match log_number.parse::<i64>() { Ok(num) => num, Err(e) => return e.to_string().into_response() };
+    let log = if let Some(log) = db::get_log_by_slug(&state, project.uid, log_number).await { log } else { return "Log not found".into_response(); };
     return Html(ViewLogTemplate{owner: u, project, log}.render().unwrap()).into_response();
 }
 
@@ -659,7 +587,12 @@ async fn post_new_log_media_upload(session: Session, State(state): State<AppStat
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
     let log_file_path = format!("{}/{}", &log_path, &file_name);
     let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &u.username, &project_slug, &log_number, &file_name);
-    if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
+    if let Ok(_) = tokio::fs::create_dir_all(&log_path).await {
+        let current_size = filestuff::get_directory_size_bytes(&log_path).await.unwrap_or(0);
+        let incoming_size = data.file.contents.len() as u64;
+        if current_size + incoming_size > 100 * 1024 * 1024 {
+            return (StatusCode::INSUFFICIENT_STORAGE, "cannot upload more than 100MB per log").into_response();
+        }
         if let Ok(_) = fs::write(log_file_path, &data.file.contents) {
             return (StatusCode::OK, log_file_web_path).into_response();
         } else {
@@ -686,7 +619,7 @@ async fn delete_log_media_delete(session: Session, State(state): State<AppState>
         Ok(_) => { return (StatusCode::OK, "File deleted successfully").into_response(); },
         Err(e) => {
             println!("Failed to delete file {}: {}", log_file_path, e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "could not delete file").into_response();
+            return (StatusCode::OK, "file already does not exist").into_response();
         }
     }
 }

@@ -1,6 +1,7 @@
-use std::io::Cursor;
+use std::{io::Cursor, path::Path};
 use image::ImageFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
+use tokio::fs;
 
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
@@ -115,3 +116,85 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
     html::push_html(&mut html_output, parser);
     return html_output;
 }
+
+pub async fn get_directory_size_bytes<P: AsRef<Path>>(dir_path: P) -> std::io::Result<u64> {
+    let mut total_size = 0;
+    
+    // Open the directory stream
+    let mut entries = fs::read_dir(dir_path).await?;
+
+    // Loop through every file entry in the directory
+    while let Some(entry) = entries.next_entry().await? {
+        let metadata = entry.metadata().await?;
+        
+        // Only count actual files, skip sub-folders
+        if metadata.is_file() {
+            total_size += metadata.len();
+        }
+    }
+
+    Ok(total_size)
+}
+
+// little gemini AI gave me this function; seems fine; not tested; wants me to use `scraper`; what is 1 more dependency to a 100,000 dependency project, eh?
+// use std::collections::HashSet;
+// use std::path::Path;
+// use tokio::fs;
+// use scraper::{Html, Selector};
+// pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
+//     let dir = dir_path.as_ref();
+//     let index_path = dir.join("index.html");
+
+//     // Scenario A: No index.html -> Delete everything
+//     if !index_path.exists() {
+//         let mut entries = fs::read_dir(dir).await?;
+//         while let Some(entry) = entries.next_entry().await? {
+//             let path = entry.path();
+//             if path.is_file() {
+//                 fs::remove_file(path).await?;
+//             }
+//         }
+//         return Ok(());
+//     }
+
+//     // Scenario B: index.html exists -> Find what's linked
+//     let html_content = fs::read_to_string(&index_path).await?;
+//     let document = Html::parse_document(&html_content);
+    
+//     // Create a set to hold linked filenames
+//     let mut linked_files = HashSet::new();
+
+//     // Look for tags that use 'src' attributes (img, video, audio, source)
+//     let src_selector = Selector::parse("[src]").unwrap();
+//     for element in document.select(&src_selector) {
+//         if let Some(src_val) = element.value().attr("src") {
+//             // Extract just the filename out of a web path like "/uploads/john/log1/pic.png"
+//             if let Some(filename) = Path::new(src_val).file_name() {
+//                 linked_files.insert(filename.to_string_lossy().into_owned());
+//             }
+//         }
+//     }
+
+//     // Now, loop through the physical files and delete orphans
+//     let mut entries = fs::read_dir(dir).await?;
+//     while let Some(entry) = entries.next_entry().await? {
+//         let file_path = entry.path();
+        
+//         if file_path.is_file() {
+//             let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned();
+
+//             // DO NOT delete index.html itself!
+//             if file_name == "index.html" {
+//                 continue;
+//             }
+
+//             // If the file is not found in our linked_files HashSet, it's an orphan!
+//             if !linked_files.contains(&file_name) {
+//                 println!("Deleting orphaned file: {}", file_name);
+//                 fs::remove_file(file_path).await?;
+//             }
+//         }
+//     }
+
+//     Ok(())
+// }
