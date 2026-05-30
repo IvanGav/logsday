@@ -584,6 +584,7 @@ async fn post_new_log_media_upload(session: Session, State(state): State<AppStat
     let file_name = data.file.metadata.file_name.as_ref().unwrap();
     if !filestuff::filename_valid(file_name) { return (StatusCode::BAD_REQUEST, "invalid filename").into_response(); }
     let file_name = filestuff::normalize_extension(file_name);
+    if !filestuff::verify_magic_bytes_match_extension(&file_name, &data.file.contents).await { return (StatusCode::BAD_REQUEST, "file extension doesn't match contents").into_response(); }
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
     let log_file_path = format!("{}/{}", &log_path, &file_name);
     let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &u.username, &project_slug, &log_number, &file_name);

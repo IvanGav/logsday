@@ -69,12 +69,10 @@
             }
             input.value = "";
             try {
-                let savedPaths = await Promise.allSettled(uploadPromises); // TODO unhappy with that; shouldn't wait for all promises
+                let savedPaths = await Promise.allSettled(uploadPromises);
                 let insert_embeds = "";
                 for (let path of savedPaths) {
-                    if (path) { // if sucessful
-                        insert_embeds += "\n![](" + path.value + ")\n";
-                    }
+                    if (path.value != null) { insert_embeds += "\n![](" + path.value + ")\n"; }
                 }
                 document.getElementsByName("content")[0].value += insert_embeds;
             } catch (globalError) {
@@ -87,11 +85,11 @@
             li.innerText = 'Removing "' + filename + '"...';
             try {
                 const response = await fetch(`${getDeletePath()}/${encodeURIComponent(filename)}`, { method: "DELETE" });
-                if (!response.ok) throw new Error("Delete failed"); // should not happen
+                if (!response.ok) throw new Error("Delete failed"); // should never happen
                 li.remove();
             } catch (error) {
                 console.log(error);
-                li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0)); // also should not happen
+                li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0));
             }
         }
         async function uploadFile(li, file, filename) {

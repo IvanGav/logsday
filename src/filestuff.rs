@@ -119,21 +119,19 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
 
 pub async fn get_directory_size_bytes<P: AsRef<Path>>(dir_path: P) -> std::io::Result<u64> {
     let mut total_size = 0;
-    
-    // Open the directory stream
     let mut entries = fs::read_dir(dir_path).await?;
-
-    // Loop through every file entry in the directory
     while let Some(entry) = entries.next_entry().await? {
         let metadata = entry.metadata().await?;
-        
-        // Only count actual files, skip sub-folders
         if metadata.is_file() {
             total_size += metadata.len();
         }
     }
-
     Ok(total_size)
+}
+
+pub async fn verify_magic_bytes_match_extension(filename: &str, bytes: &[u8]) -> bool {
+    let kind = match infer::get(&bytes) { Some(k) => k, None => { return false; }};
+    return mime_media_type(kind.mime_type()) == media_type(filename);
 }
 
 // little gemini AI gave me this function; seems fine; not tested; wants me to use `scraper`; what is 1 more dependency to a 100,000 dependency project, eh?
