@@ -16,6 +16,7 @@
     --gap: 15px;
 }
 
+/* all links should be styled like this, unless explicitly styled differently (example: navbar) */
 a {
     text-decoration: none;
     color: var(--link);
@@ -24,25 +25,30 @@ a:hover {
     color: var(--link-hover);
 }
 
-/* nav */
+/* take up as much (horizontal) space as possible */
+.max-fill {
+    margin-left: auto;
+}
+
 .navbar {
     display: flex;
     background-color: var(--accent);
-    justify-content: flex-start;
     align-items: center;
     margin-bottom: 10px;
 }
 .navitem {
-    padding-left: 1%;
-    padding-right: 1%;
-    padding-top: 2px;
-    padding-bottom: 2px;
+    padding: 6px 12px;
     text-decoration: none;
     color: var(--text-main);
+    white-space: nowrap;
 }
 .navitem:hover {
     background-color: var(--accent-hover);
     color: var(--text-main);
+}
+#nav-user {
+    display: flex;
+    align-items: center;
 }
 
 /* generic items */

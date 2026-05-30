@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logsday</title>
-    <!-- <base href="/doesntexist/lol/"> -->
     <script src="/static/htmx.min.js"></script>
+    <script src="/static/scripts.js"></script>
     <link rel="stylesheet" href="/static/style.css">
     <!-- <link rel="icon" type="image/x-icon" href="/static/favicon.ico"> -->
 </head>
@@ -13,8 +13,9 @@
     <nav class="navbar">
         <a class="navitem" href="/">Home</a>
         <a class="navitem" href="/project">Projects</a>
-        <a class="navitem" href="/signup">Sign Up</a>
-        <a class="navitem" href="/login">Log In</a>
+        <span class="max-fill"></span>
+        <!-- <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML" hx-on::after-swap="initCountdown()"></span> -->
+        <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML"></span>
     </nav>
     
     <main>

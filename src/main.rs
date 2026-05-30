@@ -62,6 +62,7 @@ async fn main() {
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
         .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
+        .route("/bits/nav-user", get(get_nav_user_bit))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -621,6 +622,31 @@ async fn delete_log_media_delete(session: Session, State(state): State<AppState>
         Err(e) => {
             println!("Failed to delete file {}: {}", log_file_path, e);
             return (StatusCode::OK, "file already does not exist").into_response();
+        }
+    }
+}
+
+// Route /bits/nav-user
+
+#[derive(Template)]
+#[template(path = "bits/nav_user.html")]
+struct NavUserBitTemplate {
+    user: User
+}
+
+#[derive(Template)]
+#[template(path = "bits/login.html")]
+struct LoginBitTemplate;
+
+async fn get_nav_user_bit(session: Session, State(state): State<AppState>) -> impl IntoResponse {
+    let uid = session.get::<i64>("uid").await.unwrap();
+    match uid {
+        Some(uid) => {
+            let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+            return Html(NavUserBitTemplate{user}.render().unwrap()).into_response();
+        },
+        None => {
+            return Html(LoginBitTemplate.render().unwrap()).into_response();
         }
     }
 }

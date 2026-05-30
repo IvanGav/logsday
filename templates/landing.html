@@ -1,49 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <script>
-        function initCountdown() {
-            const timerElement = document.getElementById("countdown");
-            if (!timerElement) return;
-
-            const startTime = new Date().getTime();
-            const targetTime = new Date(parseInt(timerElement.getAttribute("time-duration")) * 1000).getTime();
-
-            console.log(targetTime);
-
-            const interval = setInterval(() => {
-                const now = new Date().getTime();
-                const distance = targetTime - (now - startTime);
-
-                if (distance < 0) {
-                    timerElement.innerText = "It's time!";
-                    clearInterval(interval);
-                    // window.location.reload();
-                    return;
-                }
-
-                // Time calculations for days, hours, minutes and seconds
-                const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-                const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-                const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-
-                // Display the result
-                timerElement.innerText = `${days}d ${hours}h ${minutes}m ${seconds}s`;
-            }, 1000);
-        }
-        // Run on page load
-        document.addEventListener("DOMContentLoaded", initCountdown);
-    </script>
     <h2>Logsday!!!</h2>
-    {% if let Some(user) = user %}
-        <hr>
-        {% if self::week::is_logsday(*user.week_len, *user.logsday_weekday) %}
-            <p>Your Logsday ends in <p id="countdown" time-duration="{{ self::week::time_left_today() }}"></p></p>
-        {% else %}
-            <p>Your Logsday starts in <p id="countdown" time-duration="{{ self::week::time_until_next_logsday(*user.week_len, *user.logsday_weekday) }}"></p></p>
-        {% endif %}
-    {% endif %}
     <hr>
     Explore users:
     {% for u in display_users %}
