@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>{{ owner.displayname }}'s {{ project.title }}: Log {{ log.number}} - {{ log.title }}</h2>
-    <img src="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/thumb.webp" alt="log thumbnail" height="150px">
-    <div hx-trigger="load" hx-get="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/index.html"></div>
+    <div>
+        <h2><a href="/u/{{ owner.username }}">{{ owner.displayname }}</a> / <a href="/u/{{ owner.username }}/{{ project.slug }}">{{ project.title }}</a> / Log {{ log.number }}: {{ log.title }}</h2>
+        <span>Created on: <span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
+    </div>
+    <hr>
+    <div hx-trigger="load" hx-get="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content"></div>
+    <hr>
 {% endblock %}

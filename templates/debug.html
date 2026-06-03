@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="UTF-8">
+    <script src="/static/htmx.min.js"></script>
+    <script>htmx.config.logAll = true;</script>
+</head>
+<body>
+    <div id="mydiv" hx-get hx-on::after:init="console.log('hx-on has executed');"></div>
+</body>
+</html>

@@ -1,24 +1,25 @@
 {% extends "base.html" %}
 
 {% block content %}
+    <h2>Sign Up</h2>
+    <p id="err"></p>
     <form hx-post="/signup" hx-target="#err">
-        <input type="text" name="displayname" placeholder="Display Name" required>
-        <input type="text" name="username" placeholder="Username" required>
-        <input type="text" name="password" placeholder="Password" required>
-        <select name="week_len">
-            <option value="8">8 days/week (after a given weekday)</option>
-            <option value="7">7 days/week (on a given weekday)</option>
-        </select>
-        <select name="logsday_weekday">
+        <label>Display Name<sup style="color:red">*</sup> <input type="text" name="displayname" id="displayname" required oninput="autogenerateUsername(this)"></label>
+        <label>Username <input type="text" name="username" id="username" placeholder="-"> (a-z, 0-9, -, _ only; used in urls, etc)</label>
+        <label>Password<sup style="color:red">*</sup> <input type="password" name="password" id="password" required></label>
+        <lable>My week length is: <select name="week_len" onchange="replaceParticle(this)">
+            <option value="7">7 days/week</option>
+            <option value="8" selected="selected">8 days/week</option>
+        </select></lable>
+        <label>My logsday is <span id="logsday-weekday-particle">after</span> <select name="logsday_weekday">
             <option value="0">Monday</option>
             <option value="1">Tuesday</option>
-            <option value="2">Wednesday</option>
+            <option value="2" selected="selected">Wednesday</option>
             <option value="3">Thursday</option>
             <option value="4">Friday</option>
             <option value="5">Saturday</option>
             <option value="6">Sunday</option>
-        </select>
+        </select></label>
         <button type="submit">Sign Up</button>
     </form>
-    <p id="err"></p>
 {% endblock %}

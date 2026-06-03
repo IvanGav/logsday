@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <form hx-post="/login" hx-target="#err">
-        <input type="text" name="username" placeholder="Username" required>
-        <input type="text" name="password" placeholder="Password" required>
+    <h2>Log In</h2>
+    <p id="err"></p>
+    <form hx-post="/login" hx-target="#err" class="login-form">
+        <label>Username <input type="text" name="username" required></label>
+        <label>Password <input type="password" name="password" required></label>
         <button type="submit">Log In</button>
     </form>
-    <p id="err"></p>
 {% endblock %}

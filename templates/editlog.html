@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>Log {{ log.title }}</h2>
-    <button class="link" hx-post="/del/log/{{ project_slug }}/{{ log.number }}" style="color:red" hx-target="#del-err">Delete This Log</button>
+    <div>
+        <h2><a href="/project/{{ project.slug }}">{{ project.title }}</a> / Log {{ log.number }}: {{ log.title }}</h2>
+        <span>Created on: <span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
+    </div>
+    <hr>
+    <div hx-trigger="load" hx-get="/uploads/{{ username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content"></div>
+    <hr>
+    <button class="link" hx-post="/del/log/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
     <p id="del-err"></p>
-    <img src="/uploads/{{ username }}/{{ project_slug }}/{{ log.number }}/thumb.webp" alt="log thumbnail" height="150px">
-    <div hx-trigger="load" hx-get="/uploads/{{ username }}/{{ project_slug }}/{{ log.number }}/index.html"></div>
 {% endblock %}

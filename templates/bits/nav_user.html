@@ -1,5 +1,6 @@
 {% if self::week::is_logsday(*user.week_len, *user.logsday_weekday) %}
-    <span>Logsday ends: <span id="countdown" time-duration="{{ self::week::time_left_today() }}"></span></span>
+    <span style="margin-right:1rem">Logsday ends: <span id="countdown" time-duration="{{ self::week::time_left_today() }}"></span></span>
 {% else %}
-    <span>Next Logsday: <span id="countdown" time-duration="{{ self::week::time_until_next_logsday(*user.week_len, *user.logsday_weekday) }}"></span></span>
+    <span style="margin-right:1rem">Next Logsday: <span id="countdown" time-duration="{{ self::week::time_until_next_logsday(*user.week_len, *user.logsday_weekday) }}"></span></span>
 {% endif %}
+<a class="navitem" href="/logout">Log Out</a>

@@ -47,9 +47,11 @@ async fn main() {
     let state = AppState { db: db_pool };
 
     let app = Router::new()
+        .route("/debug", get(get_debug))
         .route("/", get(landing))
         .route("/signup", get(get_signup).post(post_signup))
         .route("/login", get(get_login).post(post_login))
+        .route("/logout", get(get_logout))
         .route("/project", get(get_project_list))
         .route("/project/{project_slug}", get(get_edit_project))
         .route("/project/{project_slug}/{log_number}", get(get_edit_log))
@@ -83,6 +85,10 @@ fn generic_error() -> impl IntoResponse {
 
 fn hx_redirect(route: &str) -> impl IntoResponse {
     return ([("HX-Redirect", route)], "Redirecting...").into_response();
+}
+
+fn redirect_login() -> impl IntoResponse {
+    return Redirect::to("/login").into_response();
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -134,6 +140,13 @@ async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): P
 struct MessageTemplate {
     message: String,
 }
+
+// Route /debug
+
+#[derive(Template)]
+#[template(path = "debug.html")]
+struct DebugTemplate;
+async fn get_debug() -> impl IntoResponse { Html(DebugTemplate.render().unwrap()).into_response() }
 
 // Route /
 
@@ -254,17 +267,20 @@ async fn post_signup(
     State(state): State<AppState>,
     Form(form): Form<SignupSubmission>,
 ) -> impl IntoResponse {
-    if form.displayname.len() > 255 || form.username.len() > 255 || form.password.len() > 1023 { return "displayname, username or password are too long".into_response(); }
-    if !slug::slug_valid(&form.username) {
+    let displayname = form.displayname.trim();
+    if displayname.is_empty() { return "empty displayname".into_response(); }
+    let username = if form.username.trim().is_empty() { slug::slug_from(&displayname) } else { form.username };
+    if displayname.len() > 255 || username.len() > 255 || form.password.len() > 255 { return "displayname, username or password are too long".into_response(); }
+    if !slug::slug_valid(&username) {
         return "invalid username".into_response();
     }
     if (form.week_len != 7 && form.week_len != 8) || form.logsday_weekday < 0 || form.logsday_weekday > 6 { return "no.".into_response(); }
     let logsday_weekday = if form.week_len == 7 { form.logsday_weekday } else { form.logsday_weekday + 1 };
-    let result = db::create_user(&state, &form.username, &form.displayname, &form.password, form.week_len, logsday_weekday).await;
+    let result = db::create_user(&state, &username, &displayname, &form.password, form.week_len, logsday_weekday).await;
     match result {
         Ok(_) => {
-            if let Ok(_) = tokio::fs::create_dir_all(format!("uploads/users/{}", form.username)).await {
-                let u = db::get_user_by_username(&state, &form.username).await;
+            if let Ok(_) = tokio::fs::create_dir_all(format!("uploads/users/{}", username)).await {
+                let u = db::get_user_by_username(&state, &username).await;
                 if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
                 let uid = u.unwrap().uid;
                 session.insert("uid", uid).await.unwrap();
@@ -318,21 +334,32 @@ async fn post_login(
     return "Incorrect Username or Password".into_response();
 }
 
+// Route /logout
+
+async fn get_logout(session: Session) -> impl IntoResponse {
+    match session.remove::<i64>("uid").await {
+        Ok(_) => { return Redirect::to("/").into_response(); }
+        Err(e) => { println!("{}", e); return Html(MessageTemplate{message: "You're not logged in.".into()}.render().unwrap()).into_response(); }
+    }
+}
+
 // Route /project
 #[derive(Template)]
 #[template(path = "projectlist.html")]
 struct ProjectListTemplate {
-    projects: Vec<Project>
+    projects: Vec<Project>,
+    user: User,
 }
 
 async fn get_project_list(session: Session, State(state): State<AppState>) -> impl IntoResponse {
-    let user_id: Option<i64> = session.get("uid").await.unwrap();
+    let user_id = session.get::<i64>("uid").await.unwrap();
     if let None = user_id {
         return Redirect::to("/login").into_response();
     }
     let user_id = user_id.unwrap();
+    let user = db::get_user(&state, user_id).await.unwrap();
     let projects = db::get_user_projects(&state, user_id).await;
-    let render = ProjectListTemplate{projects}.render();
+    let render = ProjectListTemplate{projects, user}.render();
     if let Ok(render) = render {
         return Html(render).into_response();
     }
@@ -349,7 +376,7 @@ struct EditProjectTemplate {
 }
 
 async fn get_edit_project(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
-    let user_id: Option<i64> = session.get("uid").await.unwrap();
+    let user_id = session.get::<i64>("uid").await.unwrap();
     match user_id {
         Some(uid) => {
             let project = db::get_project_by_slug(&state, uid, &project_slug).await;
@@ -357,7 +384,7 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             let project = project.unwrap();
 
             let u = db::get_user(&state, uid).await;
-            if let None = u { return hx_redirect("/login").into_response(); }
+            if let None = u { return redirect_login().into_response(); }
             let username = u.unwrap().username;
 
             let logs = db::get_project_logs(&state, project.uid).await;
@@ -367,7 +394,7 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
             }
             return generic_error().into_response();
         },
-        None => Redirect::to("/login").into_response()
+        None => redirect_login().into_response()
     }
 }
 
@@ -376,7 +403,7 @@ async fn get_edit_project(session: Session, State(state): State<AppState>, Path(
 #[template(path = "editlog.html")]
 struct EditLogTemplate {
     username: String,
-    project_slug: String,
+    project: Project,
     log: LogEntry,
 }
 
@@ -388,6 +415,8 @@ async fn get_edit_log(session: Session, State(state): State<AppState>, Path((pro
             if let None = user { return "could not get user data".into_response(); }
             let user = user.unwrap();
 
+            let project = db::get_project_by_slug(&state, uid, &project_slug).await.unwrap();
+
             let log_number = log_number.parse::<i64>();
             if let Err(e) = log_number { return e.to_string().into_response(); }
             let log_number = log_number.unwrap();
@@ -396,7 +425,7 @@ async fn get_edit_log(session: Session, State(state): State<AppState>, Path((pro
             if let None = log { return "Log not found".into_response(); }
             let log = log.unwrap();
 
-            let render = EditLogTemplate{username: user.username, project_slug, log}.render();
+            let render = EditLogTemplate{username: user.username, project, log}.render();
             if let Ok(render) = render {
                 return Html(render).into_response();
             }
@@ -415,8 +444,8 @@ struct NewLogTemplate {
 }
 
 async fn get_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
-    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
-    let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return redirect_login().into_response(); };
+    let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return redirect_login().into_response(); };
     if !week::is_logsday(user.week_len, user.logsday_weekday) && uid != 1 { // user 1 is allowed to upload whenever; debug feature
         return Html(MessageTemplate { message: "Not your Logsday! Go touch some logs!".into() }.render().unwrap()).into_response();
     }
@@ -430,48 +459,37 @@ async fn get_new_log(session: Session, State(state): State<AppState>, Path(proje
     return Html(render).into_response();
 }
 
-#[derive(TryFromMultipart)]
+
+#[derive(Deserialize)]
 struct NewLogRequest {
-    #[form_data(field_name = "title")]
     title: String,
-    #[form_data(field_name = "content")]
     content: String,
-    #[form_data(field_name = "thumbnail", limit = "10MB")]
-    thumbnail: FieldData<Bytes>,
 }
 
-async fn post_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<NewLogRequest>) -> impl IntoResponse {
-    if data.title.len() > 255 { return "title too long".into_response(); }
-    if data.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
+async fn post_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+    if form.title.len() > 255 { return "title too long".into_response(); }
+    if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
     let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
     let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
     let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
-    if !week::is_logsday(u.week_len, u.logsday_weekday) && uid != 1 { return generic_error().into_response(); }
-    if let Some(log) = db::get_last_log(&state, uid).await { if uid != 1 && week::days_since(log.created_on) < u.week_len { return generic_error().into_response(); } }
-    let content_type: &str = if let Some(t) = &data.thumbnail.metadata.content_type { t } else { return "Could not get file type".into_response(); };
+    if !week::is_logsday(u.week_len, u.logsday_weekday) && uid != 1 { return "it's not your logsday".into_response(); }
+    if let Some(log) = db::get_last_log(&state, uid).await { if uid != 1 && week::days_since(log.created_on) < u.week_len { return "already uploaded this logsday".into_response(); } }
     let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
-    if !ACCEPTED_THUMBNAIL_FILE_TYPES.contains(&content_type) { return "Unsupported file format".into_response(); }
     let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
-    let log_thumbnail_path = format!("{}/{}", &log_path, "thumb.webp");
     let log_content_path = format!("{}/{}", &log_path, "index.md");
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
-    let webp_img = match filestuff::convert_to_webp(&data.thumbnail.contents) { Ok(img) => img, Err(e) => return e.to_string().into_response() };
-    match db::create_log(&state, project.uid, &data.title, log_number, &log_path).await {
+    match db::create_log(&state, project.uid, &form.title, log_number, &log_path).await {
         Ok(_) => {
             if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
-                if let Ok(_) = fs::write(log_thumbnail_path, &webp_img) {
-                    let html_render = filestuff::render_markdown_to_html(&data.content);
-                    if let Ok(_) = fs::write(log_content_path, &data.content) {
-                        if let Ok(_) = fs::write(log_content_rendered_path, &html_render) {
-                            return hx_redirect(&format!("/project/{}", project_slug)).into_response();
-                        } else {
-                            return "couldn't write rendered content".into_response();
-                        }
+                let html_render = filestuff::render_markdown_to_html(&form.content);
+                if let Ok(_) = fs::write(log_content_path, &form.content) {
+                    if let Ok(_) = fs::write(log_content_rendered_path, &html_render) {
+                        return hx_redirect(&format!("/project/{}", project_slug)).into_response();
                     } else {
-                        return "couldn't write content".into_response();
+                        return "couldn't write rendered content".into_response();
                     }
                 } else {
-                    return "couldn't write thumbnail".into_response();
+                    return "couldn't write content".into_response();
                 }
             } else {
                 return "couldn't create log dir".into_response();
@@ -642,7 +660,7 @@ async fn get_nav_user_bit(session: Session, State(state): State<AppState>) -> im
     let uid = session.get::<i64>("uid").await.unwrap();
     match uid {
         Some(uid) => {
-            let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+            let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return "error".into_response(); };
             return Html(NavUserBitTemplate{user}.render().unwrap()).into_response();
         },
         None => {

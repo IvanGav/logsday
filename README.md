@@ -18,6 +18,7 @@ You will be able to upload a devlog exactly once a week.
 - `/` => `templates/landing.html`- home, undecided
 - `/signup` => `templates/signup.html`
 - `/login` => `templates/login.html`
+- `/logout` - logout and redirect to `/`
 - `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
 - `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
 - `/project/{project_slug}/{log_number}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
@@ -31,6 +32,7 @@ You will be able to upload a devlog exactly once a week.
 - `/u/{username}/{project_slug}/{log_number}/comment` - view log comments or submit a new log comment
 - `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
 - `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
+- `/bits/navuser` => `templates/bits/login.html`/`nav_user.html` - get the navbar login/signup or the logout/time until logsday; bits uris are htmx helpers
 
 ## Tech Stack
 

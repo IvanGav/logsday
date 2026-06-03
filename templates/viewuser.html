@@ -3,16 +3,21 @@
 {% block content %}
     <h2>{{ owner.displayname }} ({{ owner.username }})</h2>
     {% if owner.week_len == 7 %}
-    <h3>Their Logsday is on {{ self::get_weekday_name(*owner.logsday_weekday) }}</h3>
+        <p>Their Logsday is on {{ self::get_weekday_name(*owner.logsday_weekday) }}</p>
     {% else %}
-    <h3>Their Logsday is between {{ self::get_weekday_name(owner.logsday_weekday-1) }} and {{ self::get_weekday_name(*owner.logsday_weekday) }}</h3>
+        <p>Their Logsday is between {{ self::get_weekday_name(owner.logsday_weekday-1) }} and {{ self::get_weekday_name(*owner.logsday_weekday) }}</p>
     {% endif %}
+    <hr>
     <div class="project-list">
         {% for proj in projects %}
         <a class="project-listing" href="/u/{{ owner.username }}/{{ proj.slug }}">
-            <p>Project: </p>
+            <img class="project-listing-thumb" src="/uploads/{{ owner.username }}/{{ proj.slug }}/thumb.webp">
             <p>{{ proj.title }}</p>
+            <span class="date">Created on: <span id="{{ proj.slug }}" unix-utc="{{ proj.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
         </a>
+        {% else %}
+        <p>So empty...</p>
         {% endfor %}
     </div>
+    <hr>
 {% endblock %}

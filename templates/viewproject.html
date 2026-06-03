@@ -1,16 +1,23 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>{{ owner.displayname }}'s {{ project.title }}</h2>
-    <img src="/uploads/{{ owner.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" height="150px">
+    <div style="display:flex;flex-direction:row;gap:1rem;">
+        <img src="/uploads/{{ owner.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" class="view-project-thumb">
+        <div>
+            <h2><a href="/u/{{ owner.username }}">{{ owner.displayname }}</a> / {{ project.title }}</h2>
+            <span>Created on: <span unix-utc="{{ project.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
+        </div>
+    </div>
+    <hr>
     <div class="log-list">
         {% for log in logs %}
         <a class="log-listing" href="/u/{{ owner.username }}/{{ project.slug }}/{{ log.number }}">
-            <p>Log: </p>
+            <p>Log {{ log.number }}: </p>
             <p>{{ log.title }}</p>
         </a>
         {% else %}
-        <p>So empty...</p>
+        <p>So empty... Not a single tree in sight!</p>
         {% endfor %}
     </div>
+    <hr>
 {% endblock %}

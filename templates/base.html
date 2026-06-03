@@ -4,9 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logsday</title>
+    <!-- htmx -->
     <script src="/static/htmx.min.js"></script>
+    <!-- marked.js -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js"></script>
     <script src="/static/scripts.js"></script>
-    <link rel="stylesheet" href="/static/style.css">
+    <!-- Jetbrains Momo font; credit to Jetbrains -->
+    <link href='https://fonts.googleapis.com/css?family=JetBrains Mono' rel='stylesheet'>
+    <link href="/static/style.css" rel="stylesheet">
     <!-- <link rel="icon" type="image/x-icon" href="/static/favicon.ico"> -->
 </head>
 <body>
@@ -14,10 +19,8 @@
         <a class="navitem" href="/">Home</a>
         <a class="navitem" href="/project">Projects</a>
         <span class="max-fill"></span>
-        <!-- <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML" hx-on::after-swap="initCountdown()"></span> -->
-        <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML"></span>
+        <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML" hx-on::after:swap="initCountdown()"></span>
     </nav>
-    
     <main>
         {% block content %}{% endblock %}
     </main>

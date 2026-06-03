@@ -1,24 +1,13 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <script>
-        function checkFileSize(input) {
-            const limit = 10 * 1024 * 1024;
-            if (input.files[0].size > limit) {
-                alert("This file is too big! Please choose an image under 10 MB.");
-                input.value = ""; // Clear the input
-            }
-        }
-    </script>
-
+    <h2>New Project</h2>
+    <p id="err"></p>
     <form hx-post="/new/project" hx-encoding="multipart/form-data" hx-target="#err">
-        <input type="text" name="title" placeholder="Project Title" required>
-        <input type="text" name="slug" placeholder="Project Slug"> <!-- TODO make it autofill with JS, unless a value is manually entered -->
-        <textarea name="description"></textarea>
-        
-        <input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)">
-        
+        <label>Title<sup style="color:red">*</sup> <input type="text" name="title" id="title" required oninput="autogenerateUsername(this)"></label>
+        <label>Slug <input type="text" name="slug" id="slug" placeholder="-"> (a-z, 0-9, -, _ only; used in urls, etc)</label>
+        <label>Description <textarea name="description"></textarea></label>
+        <label>Thumbnail<input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)"></label>
         <button type="submit">Create Project</button>
     </form>
-    <p id="err"></p>
 {% endblock %}
