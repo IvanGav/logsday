@@ -129,22 +129,28 @@ function getDeletePath() {
     uploadPath += "delete";
     return uploadPath;
 }
-function getUploadedFilesNewListItemDesc(filename, filesize, error = false) {
-    let sizestr = "?MB";
-    if(filesize > 1000000) {
-        sizestr = (filesize/1000000).toFixed(2) + "MB";
-    } else if(filesize > 1000) {
-        sizestr = (filesize/1000).toFixed(2) + "KB";
+function getUploadedFilesNewListItemDesc(filename, filesize, error = null) {
+    let sizestr;
+    if(filesize > (1024*1024)) {
+        sizestr = (filesize/(1024*1024)).toFixed(2) + "MB";
+    } else if(filesize > 1024) {
+        sizestr = (filesize/1024).toFixed(2) + "KB";
     } else {
         sizestr = filesize + "B";
     }
-    let desc = document.createElement("p");
-    let txt;
-    if(!error) { txt = document.createTextNode("" + filename + " (" + sizestr + ")"); }
-    else { txt = document.createTextNode("Failed to upload (" + filename + ")"); }
     let button = document.createElement("button");
-    button.setAttribute("onclick", "deleteMedia(this.parentElement.parentElement)");
-    button.appendChild(document.createTextNode("delete"));
+    let txt;
+    let buttonTxt;
+    if(!error) {
+        txt = document.createTextNode("" + filename + " (" + sizestr + ")");
+        button.setAttribute("onclick", "deleteMedia(this.parentElement.parentElement)");
+        button.appendChild(document.createTextNode("delete"));
+    } else {
+        txt = document.createTextNode("Failed to upload '" + filename + "': " + error);
+        button.setAttribute("onclick", "this.parentElement.parentElement.remove()");
+        button.appendChild(document.createTextNode("confirm"));
+    }
+    let desc = document.createElement("p");
     desc.appendChild(txt);
     desc.appendChild(button);
     return desc;
@@ -153,8 +159,7 @@ function getUploadedFilesNewListItem(filename) {
     let li = document.createElement("div");
     li.classList.add("uploaded-file");
     li.setAttribute("uploadedfilename", filename);
-    let txt = document.createTextNode("Uploading " + filename + "...");
-    li.appendChild(txt);
+    li.appendChild(document.createTextNode("Uploading " + filename + "..."));
     return li;
 }
 async function uploadAndInsertMedia(files) {
@@ -167,10 +172,10 @@ async function uploadAndInsertMedia(files) {
         uploadPromises.push(uploadFile(li, file, filename));
     }
     try {
-        let savedPaths = await Promise.allSettled(uploadPromises);
+        let responses = await Promise.allSettled(uploadPromises);
         let insertEmbeds = "";
-        for (let path of savedPaths) {
-            if (path.value != null) { insertEmbeds += "\n![](" + path.value + ")\n"; }
+        for (let response of responses) {
+            if (response.value.error == null) { insertEmbeds += "\n![](" + response.value.filepath + ")\n"; }
         }
         let markdownInput = document.getElementById("markdown-input");
         markdownInput.value += insertEmbeds;
@@ -195,21 +200,20 @@ async function deleteMedia(li) {
 async function uploadFile(li, file, filename) {
     const formData = new FormData();
     formData.append("file", file, filename);
-    try {
-        let uploadPath = getUploadPath();
-        const response = await fetch(uploadPath, {
-            // No 'Content-Type' header here as fetch handles it automatically
-            method: "POST",
-            body: formData
-        });
-        if (!response.ok) throw new Error("Upload failed");
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, file.size));
-        return await response.text();
-    } catch (error) {
-        console.log(error);
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, file.size, true));
-        return null;
+    let uploadPath = getUploadPath();
+    const response = await fetch(uploadPath, {
+        // No 'Content-Type' header here as fetch handles it automatically
+        method: "POST",
+        body: formData
+    });
+    if (!response.ok) {
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, error));
+        return { "error": await response.text() };
     }
+    let fileInfo = await response.json();
+    if(fileInfo.filename != filename) { console.log("Filename returned (" + fileInfo.filename + ") does not match generated (" + filename + ")"); }
+    li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, fileInfo.filesize));
+    return fileInfo;
 }
 async function renderCreatedOn(div) {
     const unixUtc = parseInt(div.getAttribute("unix-utc"), 10);
@@ -255,4 +259,5 @@ function setupNewlogListeners() {
             uploadAndInsertMedia(files);
         }
     });
+    updatePreview(document.getElementById("markdown-input")); // make sure that if there's any pre-existing text - it's rendered
 }

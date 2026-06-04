@@ -52,6 +52,10 @@ form hr {
     display: flex;
     flex-direction: column;
 }
+.flex-row {
+    display: flex;
+    flex-direction: row;
+}
 
 .navbar {
     display: flex;

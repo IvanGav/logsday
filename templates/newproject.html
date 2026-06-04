@@ -4,7 +4,7 @@
     <h2>New Project</h2>
     <p id="err"></p>
     <form hx-post="/new/project" hx-encoding="multipart/form-data" hx-target="#err">
-        <label>Title<sup style="color:red">*</sup> <input type="text" name="title" id="title" required oninput="autogenerateUsername(this)"></label>
+        <label>Title<sup style="color:red">*</sup> <input type="text" name="title" id="title" required oninput="autogenerateSlug(this)"></label>
         <label>Slug <input type="text" name="slug" id="slug" placeholder="-"> (a-z, 0-9, -, _ only; used in urls, etc)</label>
         <label>Description <textarea name="description"></textarea></label>
         <label>Thumbnail<input type="file" name="thumbnail" accept="image/*" id="thumbnail-input" onchange="checkFileSize(this)"></label>

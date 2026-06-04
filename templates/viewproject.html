@@ -8,6 +8,7 @@
             <span>Created on: <span unix-utc="{{ project.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
         </div>
     </div>
+    <div>{{ project.description }}</div>
     <hr>
     <div class="log-list">
         {% for log in logs %}

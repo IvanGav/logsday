@@ -24,6 +24,8 @@ You will be able to upload a devlog exactly once a week.
 - `/project/{project_slug}/{log_number}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
 - `/new/project` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
 - `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
+- `/new/log/{project_slug}/upload` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST
+- `/new/log/{project_slug}/delete/{file_name}` - delete the given file from the newlog
 - `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
 - `/del/log/{project_slug}/{log_number}` - delete the log for the specified project; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/user_page.html` - look at a user's profile
@@ -78,7 +80,9 @@ CREATE TABLE users (
     password TEXT NOT NULL,
     week_len INTEGER NOT NULL DEFAULT 8,
     logsday_weekday INTEGER NOT NULL DEFAULT 3, -- Logsday is between Wednesday and Thursday; Monday is 0; Sunday is 6/7
-    schedule_last_changed INTEGER NOT NULL -- when the user changed their Logsday selection last time; unix timestamp
+    schedule_last_changed INTEGER NOT NULL, -- when the user changed their Logsday selection last time; unix timestamp
+    admin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_on INTEGER NOT NULL -- unix timestamp
 );
 
 CREATE TABLE projects (
@@ -87,7 +91,6 @@ CREATE TABLE projects (
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
-    path TEXT NOT NULL, -- technically unnecessary, but convenient
     created_on INTEGER NOT NULL, -- unix timestamp
 
     UNIQUE(user_uid, slug)
@@ -99,7 +102,6 @@ CREATE TABLE logs (
     project_uid INTEGER NOT NULL,
     title TEXT NOT NULL,
     number INTEGER NOT NULL, -- this log's sequential number in the project
-    path TEXT NOT NULL, -- technically unnecessary, but convenient
     created_on INTEGER NOT NULL, -- unix timestamp
 
     UNIQUE(project_uid, number)

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>{{ owner.displayname }} ({{ owner.username }})</h2>
+    <div>
+        <h2>{{ owner.displayname }} ({{ owner.username }})</h2>
+        <p>Joined on: <span unix-utc="{{ owner.created_on }}" hx-on:load="renderCreatedOn(this)"></span></p>
+    </div>
     {% if owner.week_len == 7 %}
         <p>Their Logsday is on {{ self::get_weekday_name(*owner.logsday_weekday) }}</p>
     {% else %}

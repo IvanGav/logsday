@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    Form, Router, ServiceExt, body::Bytes, extract::DefaultBodyLimit, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{delete, get, post}
+    Form, Json, Router, ServiceExt, body::Bytes, extract::DefaultBodyLimit, http::{HeaderMap, StatusCode, header}, response::{Html, IntoResponse, Redirect}, routing::{delete, get, post}
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
@@ -12,12 +12,13 @@ use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
 
-use crate::filestuff::MediaType;
+use crate::{filestuff::MediaType, newlog::NewlogResult};
 
 mod db;
 mod slug;
 mod week;
 mod filestuff;
+mod newlog;
 
 const ACCEPTED_THUMBNAIL_FILE_TYPES: [&str; 5] = ["image/png", "image/jpg", "image/jpeg", "image/gif", "image/webp"];
 const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satruday", "Sunday"];
@@ -26,6 +27,10 @@ pub fn get_weekday_name(mut cur_day: i64) -> &'static str {
     if cur_day < 0 { cur_day += 7; }
     if cur_day > 6 { cur_day -= 7; }
     return WEEKDAY_NAMES[cur_day as usize];
+}
+
+pub fn msg_html(message: String) -> Html<String> {
+    Html(MessageTemplate { message }.render().unwrap())
 }
 
 #[derive(Clone)]
@@ -100,6 +105,8 @@ struct User {
     week_len: i64,
     logsday_weekday: i64,
     schedule_last_changed: week::UnixTime,
+    admin: bool,
+    created_on: week::UnixTime,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -108,8 +115,7 @@ struct Project {
     user_uid: i64,
     title: String,
     slug: String,
-    description: String, // nullable
-    path: String,
+    description: String,
     created_on: week::UnixTime,
 }
 
@@ -119,7 +125,6 @@ struct LogEntry {
     project_uid: i64,
     title: String,
     number: i64,
-    path: String,
     created_on: week::UnixTime,
 }
 
@@ -207,14 +212,17 @@ struct NewProjectRequest {
 }
 
 async fn post_new_project(State(state): State<AppState>, session: Session, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
-    if data.title.len() > 255 || data.slug.len() > 255 { return "title or slug too long".into_response(); }
+    let pslug: &str = if data.slug.len() == 0 { &slug::slug_from(&data.title) } else { &data.slug };
+
+    if data.title.len() > 255 || pslug.len() > 255 { return "title or slug too long".into_response(); }
+    if data.description.len() > 65535 { return "description too long".into_response(); }
 
     let uid = session.get::<i64>("uid").await.unwrap();
-    if let None = uid { return hx_redirect("/login").into_response(); }
+    if let None = uid { return "You're not logged in".into_response(); }
     let uid = uid.unwrap();
 
     let u = db::get_user(&state, uid).await;
-    if let None = u { return hx_redirect("/login").into_response(); }
+    if let None = u { return "You're not logged in".into_response(); }
     let u = u.unwrap();
 
     let content_type = &data.thumbnail.metadata.content_type;
@@ -222,15 +230,15 @@ async fn post_new_project(State(state): State<AppState>, session: Session, data:
     let content_type: &str = content_type.as_ref().unwrap();
 
     if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
-    if !slug::slug_valid(&data.slug) { return "Project slug is invalid".into_response(); }
-    let project_path = format!("uploads/users/{}/{}", &u.username, &data.slug);
+    if !slug::slug_valid(&pslug) { return "Project slug is invalid".into_response(); }
+    let project_path = format!("uploads/users/{}/{}", &u.username, &pslug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
 
     let webp_img = filestuff::convert_to_webp(&data.thumbnail.contents);
     if let Err(e) = webp_img { return e.to_string().into_response(); }
     let webp_img = webp_img.unwrap();
 
-    if let Ok(_) = db::create_project(&state, uid, &data.title, &data.slug, &data.description, &project_path).await {
+    if let Ok(_) = db::create_project(&state, uid, &data.title, &pslug, &data.description).await {
         if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
             if let Ok(_) = fs::write(thumbnail_path, &webp_img) {
                 return hx_redirect("/project").into_response();
@@ -290,6 +298,7 @@ async fn post_signup(
             }
         }
         Err(e) => {
+            println!("{}", e);
             if let Some(db_err) = e.as_database_error() {
                 if db_err.is_unique_violation() {
                     return (StatusCode::BAD_REQUEST, "Username already taken").into_response();
@@ -440,25 +449,24 @@ async fn get_edit_log(session: Session, State(state): State<AppState>, Path((pro
 #[derive(Template)]
 #[template(path = "newlog.html")]
 struct NewLogTemplate {
-    project: Project
+    project: Project,
+    md_content: String, // leave empty ("") for empty md_content
 }
 
 async fn get_new_log(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
     let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return redirect_login().into_response(); };
     let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return redirect_login().into_response(); };
-    if !week::is_logsday(user.week_len, user.logsday_weekday) && uid != 1 { // user 1 is allowed to upload whenever; debug feature
-        return Html(MessageTemplate { message: "Not your Logsday! Go touch some logs!".into() }.render().unwrap()).into_response();
+    match newlog::newlog_num(&state, &user, &project_slug).await {
+        NewlogResult::New(project, _) => { return Html(NewLogTemplate{project, md_content: "".into()}.render().unwrap()).into_response(); },
+        NewlogResult::Edit(project, log) => {
+            let md_content = match fs::read_to_string(format!("uploads/users/{}/{}/{}/index.md", &user.username, &project.slug, log.number)) { Ok(s) => s, Err(e) => { println!("{:?}", e); return generic_error().into_response(); } };
+            return Html(NewLogTemplate{project, md_content}.render().unwrap()).into_response();
+        },
+        NewlogResult::NotLogsday => { return msg_html("Not your Logsday! Go touch some logs!".into()).into_response(); },
+        NewlogResult::AlreadyUploadedForProject { project_uid: _ } => { return msg_html("You've already uploaded a log this week for a different project! Go touch some logs and come back next week!".into()).into_response(); },
+        NewlogResult::ProjectNotFound => { return msg_html("Project doesn't exist!".into()).into_response(); }
     }
-    if let Some(log) = db::get_last_log(&state, uid).await {
-        if uid != 1 && week::days_since(log.created_on) < user.week_len { // user 1 is allowed to upload whenever; debug feature
-            return Html(MessageTemplate { message: "You've already uploaded a log this week! Go touch some logs and come back next week!".into() }.render().unwrap()).into_response();
-        }
-    }
-    let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
-    let render = NewLogTemplate{project}.render().unwrap();
-    return Html(render).into_response();
 }
-
 
 #[derive(Deserialize)]
 struct NewLogRequest {
@@ -470,35 +478,30 @@ async fn post_new_log(session: Session, State(state): State<AppState>, Path(proj
     if form.title.len() > 255 { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
     let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
-    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
-    let project = if let Some(p) = db::get_project_by_slug(&state, uid, &project_slug).await { p } else { return "Project not found".into_response(); };
-    if !week::is_logsday(u.week_len, u.logsday_weekday) && uid != 1 { return "it's not your logsday".into_response(); }
-    if let Some(log) = db::get_last_log(&state, uid).await { if uid != 1 && week::days_since(log.created_on) < u.week_len { return "already uploaded this logsday".into_response(); } }
-    let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
-    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
-    let log_content_path = format!("{}/{}", &log_path, "index.md");
-    let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
-    match db::create_log(&state, project.uid, &form.title, log_number, &log_path).await {
-        Ok(_) => {
-            if let Ok(_) = tokio::fs::create_dir_all(log_path).await {
-                let html_render = filestuff::render_markdown_to_html(&form.content);
-                if let Ok(_) = fs::write(log_content_path, &form.content) {
-                    if let Ok(_) = fs::write(log_content_rendered_path, &html_render) {
-                        return hx_redirect(&format!("/project/{}", project_slug)).into_response();
-                    } else {
-                        return "couldn't write rendered content".into_response();
-                    }
-                } else {
-                    return "couldn't write content".into_response();
+    let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
+    match newlog::newlog_num(&state, &user, &project_slug).await {
+        NewlogResult::Edit(project, LogEntry { number: log_number, .. }) |
+        NewlogResult::New(project, log_number) => {
+            let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
+            let log_content_path = format!("{}/{}", &log_path, "index.md");
+            let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
+            match db::create_log(&state, project.uid, &form.title, log_number).await {
+                Ok(_) => {
+                    if let Err(e) = tokio::fs::create_dir_all(log_path).await { println!("{}", e); return "couldn't create log dir".into_response(); }
+                    let html_render = filestuff::render_markdown_to_html(&form.content);
+                    if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "couldn't write content".into_response(); }
+                    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "couldn't write rendered content".into_response(); }
+                    return hx_redirect(&format!("/project/{}", project_slug)).into_response();
+                },
+                Err(e) => {
+                    println!("{} -- project/uid = '{}'/{}, log # = {}", e, project.title, project.uid, log_number);
+                    return "Database Error".into_response();
                 }
-            } else {
-                return "couldn't create log dir".into_response();
             }
         },
-        Err(e) => {
-            println!("{} ---- project/uid = '{}'/{}, log # = {}", e, project.title, project.uid, log_number);
-            return e.to_string().into_response();
-        }
+        NewlogResult::NotLogsday => { return "Not your Logsday! Go touch some logs!".into_response(); },
+        NewlogResult::AlreadyUploadedForProject { project_uid: _ } => { return "You've already uploaded a log this week for a different project! Go touch some logs and come back next week!".into_response(); },
+        NewlogResult::ProjectNotFound => { return "Project doesn't exist!".into_response(); }
     }
 }
 
@@ -592,34 +595,32 @@ struct LogMediaUploadRequest {
     file: FieldData<Bytes>,
 }
 
-// does not return an hx_upload; return an error code that will be displayed with js
+// return the json of the file data on success; return an error code that will be displayed with js on error
 async fn post_new_log_media_upload(session: Session, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
-    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return hx_redirect("/login").into_response(); };
-    let u = if let Some(u) = db::get_user(&state, uid).await { u } else { return hx_redirect("/login").into_response(); };
-    if let None = db::get_project_by_slug(&state, uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
-    let log_number = db::get_last_project_log(&state, uid, &project_slug).await.unwrap_or_default().number + 1;
-    let content_type = if let Some(t) = &data.file.metadata.content_type { t } else { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not get file type").into_response(); };
-    if filestuff::mime_media_type(&content_type) == MediaType::Unsupported { return (StatusCode::BAD_REQUEST, "unsupported file type").into_response(); }
-    let file_name = data.file.metadata.file_name.as_ref().unwrap();
-    if !filestuff::filename_valid(file_name) { return (StatusCode::BAD_REQUEST, "invalid filename").into_response(); }
-    let file_name = filestuff::normalize_extension(file_name);
-    if !filestuff::verify_magic_bytes_match_extension(&file_name, &data.file.contents).await { return (StatusCode::BAD_REQUEST, "file extension doesn't match contents").into_response(); }
-    let log_path = format!("uploads/users/{}/{}/{}", &u.username, &project_slug, &log_number);
-    let log_file_path = format!("{}/{}", &log_path, &file_name);
-    let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &u.username, &project_slug, &log_number, &file_name);
-    if let Ok(_) = tokio::fs::create_dir_all(&log_path).await {
-        let current_size = filestuff::get_directory_size_bytes(&log_path).await.unwrap_or(0);
-        let incoming_size = data.file.contents.len() as u64;
-        if current_size + incoming_size > 100 * 1024 * 1024 {
-            return (StatusCode::INSUFFICIENT_STORAGE, "cannot upload more than 100MB per log").into_response();
-        }
-        if let Ok(_) = fs::write(log_file_path, &data.file.contents) {
-            return (StatusCode::OK, log_file_web_path).into_response();
-        } else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "can't write file").into_response();
-        }
-    } else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "can't create log dir").into_response();
+    let uid = if let Some(uid) = session.get::<i64>("uid").await.unwrap() { uid } else { return "Not logged in".into_response(); };
+    let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return "Not logged in".into_response(); };
+    match newlog::newlog_num(&state, &user, &project_slug).await {
+        NewlogResult::Edit(_, LogEntry { number: log_number , .. }) |
+        NewlogResult::New(_, log_number) => {
+            let content_type = if let Some(t) = &data.file.metadata.content_type { t } else { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not get file type").into_response(); };
+            if filestuff::mime_media_type(&content_type) == MediaType::Unsupported { return (StatusCode::BAD_REQUEST, "unsupported file type").into_response(); }
+            let file_name = data.file.metadata.file_name.as_ref().unwrap();
+            if !filestuff::filename_valid(file_name) { return (StatusCode::BAD_REQUEST, "invalid filename").into_response(); }
+            let file_name = filestuff::normalize_extension(file_name);
+            if !filestuff::verify_magic_bytes_match_extension(&file_name, &data.file.contents).await { return (StatusCode::BAD_REQUEST, "file extension doesn't match contents").into_response(); }
+            let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
+            let log_file_path = format!("{}/{}", &log_path, &file_name);
+            let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &user.username, &project_slug, &log_number, &file_name);
+            if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, "can't create log dir").into_response(); }
+            let current_size = filestuff::get_directory_size_bytes(&log_path).await.unwrap_or(0);
+            let incoming_size = data.file.contents.len() as u64;
+            if current_size + incoming_size > 100 * 1024 * 1024 { return (StatusCode::INSUFFICIENT_STORAGE, "cannot upload more than 100MB per log").into_response(); }
+            if let Err(e) = fs::write(log_file_path, &data.file.contents) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, "can't write file").into_response(); }
+            return newlog::log_response(&file_name, incoming_size, &log_file_web_path).into_response();
+        },
+        NewlogResult::NotLogsday => { return (StatusCode::BAD_REQUEST, "Not Logsday").into_response(); },
+        NewlogResult::AlreadyUploadedForProject { project_uid: _ } => { return (StatusCode::BAD_REQUEST, "This log was not created today").into_response(); },
+        NewlogResult::ProjectNotFound => { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
     }
 }
 
@@ -639,7 +640,7 @@ async fn delete_log_media_delete(session: Session, State(state): State<AppState>
         Ok(_) => { return (StatusCode::OK, "File deleted successfully").into_response(); },
         Err(e) => {
             println!("Failed to delete file {}: {}", log_file_path, e);
-            return (StatusCode::OK, "file already does not exist").into_response();
+            return (StatusCode::OK, "File already does not exist").into_response();
         }
     }
 }

@@ -13,10 +13,11 @@ pub fn slug_from(name: &str) -> String {
 }
 
 pub fn slug_valid(slug: &str) -> bool {
+    if slug.len() == 0 { return false; }
     for c in slug.chars() {
         match c {
             'a'..='z' | '0'..='9' | '_' | '-' => {},
-            c=> { return false; }
+            _ => { return false; }
         }
     }
     return true;

@@ -134,6 +134,10 @@ pub async fn verify_magic_bytes_match_extension(filename: &str, bytes: &[u8]) ->
     return mime_media_type(kind.mime_type()) == media_type(filename);
 }
 
+pub fn log_dir_exists(username: &str, project_slug: &str, log_num: i64) -> bool {
+    return Path::new(&format!("uploads/users/{}/{}/{}", username, project_slug, log_num)).exists();
+}
+
 // little gemini AI gave me this function; seems fine; not tested; wants me to use `scraper`; what is 1 more dependency to a 100,000 dependency project, eh?
 // use std::collections::HashSet;
 // use std::path::Path;
