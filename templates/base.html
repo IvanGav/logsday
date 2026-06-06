@@ -9,7 +9,7 @@
     <!-- marked.js -->
     <script src="https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js"></script>
     <script src="/static/scripts.js"></script>
-    <!-- Jetbrains Momo font; credit to Jetbrains -->
+    <!-- Jetbrains Mono font; credit to Jetbrains -->
     <link href='https://fonts.googleapis.com/css?family=JetBrains Mono' rel='stylesheet'>
     <link href="/static/style.css" rel="stylesheet">
     <!-- <link rel="icon" type="image/x-icon" href="/static/favicon.ico"> -->
@@ -17,7 +17,6 @@
 <body>
     <nav class="navbar">
         <a class="navitem" href="/">Home</a>
-        <a class="navitem" href="/project">Projects</a>
         <span class="max-fill"></span>
         <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML" hx-on::after:swap="initCountdown()"></span>
     </nav>

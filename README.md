@@ -19,19 +19,18 @@ You will be able to upload a devlog exactly once a week.
 - `/signup` => `templates/signup.html`
 - `/login` => `templates/login.html`
 - `/logout` - logout and redirect to `/`
-- `/project` => `templates/projectlist.html` - list of user's projects; redirect to `/login` when not logged in
-- `/project/{project_slug}` => `templates/editproject.html` - project page with owner previleges; redirect to `/login` when not logged in
-- `/project/{project_slug}/{log_number}` => `templates/editlog.html` - log page with owner previleges; redirect to `/login` when not logged in
+- `/u` => `templates/viewuser.html` - your profile; redirect to `/login` when not logged in
+- `/u/{username}` => `templates/viewuser.html` - user's profile + list of their projects; when your page, give extra options
+- `/u/{username}/{project_slug}` => `templates/viewproject.html` - project page + list of logs; when your project, give extra options
+- `/u/{username}/{project_slug}/{log_number}` => `templates/viewlog.html` - log page; when your log, give extra options
 - `/new/project` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
 - `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
-- `/new/log/{project_slug}/upload` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST
-- `/new/log/{project_slug}/delete/{file_name}` - delete the given file from the newlog
+- `/new/media/{project_slug}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; new log
+- `/new/media/{project_slug}/{log_number}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; specified log
 - `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
 - `/del/log/{project_slug}/{log_number}` - delete the log for the specified project; redirect to `/login` when not logged in
-- `/u/{username}` => `templates/user_page.html` - look at a user's profile
-- `/u/{username}/{project_slug}` => `templates/project_page.html` - get a public project page
-- `/u/{username}/{project_slug}/{log_number}` => `templates/log_page.html` - get a public project's log entry
-- `/u/{username}/{project_slug}/{log_number}/comment` - view log comments or submit a new log comment
+- `/del/media/{project_slug}/new/{file_name}` - delete the given file from the newlog
+- `/del/media/{project_slug}/{log_number}/{file_name}` - delete the given file from the specified log
 - `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
 - `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
 - `/bits/navuser` => `templates/bits/login.html`/`nav_user.html` - get the navbar login/signup or the logout/time until logsday; bits uris are htmx helpers
@@ -43,21 +42,22 @@ You will be able to upload a devlog exactly once a week.
   - `sqlx` crate for Rust interface with SQLite db
 - Web:
   - `HTMX`
-  - `SortableJS` for specific interactions
-  - `marked.js` or `markdown-it` may be used for .md rendering on the web
+  - `marked.js` live markdown preview
+  - `SortableJS` may be used for specific interactions
   - `vlitejs` may be used for the video player
     - HLS (HTTP Live Streaming) is a better streaming format; so, look into it later
 - Other Crates:
   - `axum` for web server basics
   - `aksama` for template rendering
   - `tower_sessions` for easy sessions
-  - `pulldown-cmark` for markdown to html rendering (https://crates.io/crates/pulldown-cmark)
+  - `pulldown-cmark` for markdown to html rendering
   - `axum_typed_multipart` for convenience, for now
 
 ## Notes
 
 - A lot of research for this project was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
 - `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page. Any exceptions will be noted here and in the code.
+  - Exception 1: `/new/media/...` should return a json with `{error}` or `{filename, filesize, filepath}`
 - Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
 - You will not be able to private a project/log. You can unlist it, but not private.
 

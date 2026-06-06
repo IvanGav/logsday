@@ -1,6 +1,11 @@
 {% if self::week::is_logsday(*user.week_len, *user.logsday_weekday) %}
     <span style="margin-right:1rem">Logsday ends: <span id="countdown" time-duration="{{ self::week::time_left_today() }}"></span></span>
+    {% if let Some(project_slug) = edit_log_project_slug %}
+        <a class="navitem" href="/new/log/{{ project_slug }}">Edit Today's Log</a>
+    {% endif %}
 {% else %}
     <span style="margin-right:1rem">Next Logsday: <span id="countdown" time-duration="{{ self::week::time_until_next_logsday(*user.week_len, *user.logsday_weekday) }}"></span></span>
 {% endif %}
+<a class="navitem" href="/u/{{ user.username }}">Projects</a>
+<a class="navitem" href="/account">Account</a>
 <a class="navitem" href="/logout">Log Out</a>

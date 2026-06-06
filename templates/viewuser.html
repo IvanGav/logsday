@@ -2,21 +2,22 @@
 
 {% block content %}
     <div>
-        <h2>{{ owner.displayname }} ({{ owner.username }})</h2>
-        <p>Joined on: <span unix-utc="{{ owner.created_on }}" hx-on:load="renderCreatedOn(this)"></span></p>
+        <h2>{{ user.displayname }} ({{ user.username }})</h2>
+        <p>Joined on: <span unix-utc="{{ user.created_on }}" hx-on:load="renderCreatedOn(this)"></span></p>
+        {% if user.week_len == 7 %}
+            <p>Logsday on {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
+        {% else %}
+            <p>Logsday between {{ self::get_weekday_name(user.logsday_weekday-1) }} and {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
+        {% endif %}
     </div>
-    {% if owner.week_len == 7 %}
-        <p>Their Logsday is on {{ self::get_weekday_name(*owner.logsday_weekday) }}</p>
-    {% else %}
-        <p>Their Logsday is between {{ self::get_weekday_name(owner.logsday_weekday-1) }} and {{ self::get_weekday_name(*owner.logsday_weekday) }}</p>
-    {% endif %}
+    {% if owner %} <a href="/new/project">New Project</a> {% endif %}
     <hr>
     <div class="project-list">
         {% for proj in projects %}
-        <a class="project-listing" href="/u/{{ owner.username }}/{{ proj.slug }}">
-            <img class="project-listing-thumb" src="/uploads/{{ owner.username }}/{{ proj.slug }}/thumb.webp">
+        <a class="project-listing" href="/u/{{ user.username }}/{{ proj.slug }}">
+            <img class="project-listing-thumb" src="/uploads/{{ user.username }}/{{ proj.slug }}/thumb.webp">
             <p>{{ proj.title }}</p>
-            <span class="date">Created on: <span id="{{ proj.slug }}" unix-utc="{{ proj.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
+            <span class="date">Created on: <span unix-utc="{{ proj.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
         </a>
         {% else %}
         <p>So empty...</p>

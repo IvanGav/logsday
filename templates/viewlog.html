@@ -2,10 +2,14 @@
 
 {% block content %}
     <div>
-        <h2><a href="/u/{{ owner.username }}">{{ owner.displayname }}</a> / <a href="/u/{{ owner.username }}/{{ project.slug }}">{{ project.title }}</a> / Log {{ log.number }}: {{ log.title }}</h2>
+        <h2><a href="/u/{{ user.username }}">{{ user.displayname }}</a> / <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a> / Log {{ log.number }}: {{ log.title }}</h2>
         <span>Created on: <span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
     </div>
     <hr>
-    <div hx-trigger="load" hx-get="/uploads/{{ owner.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content"></div>
+    <div hx-trigger="load" hx-get="/uploads/{{ user.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content"></div>
     <hr>
+    {% if owner %}
+        <button class="link" hx-post="/del/log/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
+        <p id="del-err"></p>
+    {% endif %}
 {% endblock %}

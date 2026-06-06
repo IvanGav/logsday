@@ -111,7 +111,6 @@ pub async fn get_all_users(state: &AppState) -> Vec<User> {
 
 // Getters for `projects` table
 
-/*
 pub async fn get_project(state: &AppState, project_id: i64) -> Option<Project> {
     let project = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE uid = ?;")
         .bind(&project_id)
@@ -122,7 +121,6 @@ pub async fn get_project(state: &AppState, project_id: i64) -> Option<Project> {
     }
     return project.unwrap_or(None);
 }
-*/
 
 pub async fn get_user_projects(state: &AppState, user_id: i64) -> Vec<Project> {
     let projects = sqlx::query_as::<_,Project>("SELECT * FROM projects WHERE user_uid = ?;")
@@ -160,7 +158,7 @@ pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry
     return logs.unwrap_or(vec![]);
 }
 
-pub async fn get_log_by_slug(state: &AppState, project_id: i64, log_number: i64) -> Option<LogEntry> {
+pub async fn get_log_by_number(state: &AppState, project_id: i64, log_number: i64) -> Option<LogEntry> {
     let log = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? AND number = ?;")
         .bind(&project_id)
         .bind(log_number)
@@ -176,30 +174,50 @@ pub async fn get_log_uuid_pslug_lslug(state: &AppState, user_id: i64, project_sl
     let p = get_project_by_slug(&state, user_id, project_slug).await;
     if let None = p { return None; }
     let p = p.unwrap();
-    return get_log_by_slug(&state, p.uid, log_number).await;
+    return get_log_by_number(&state, p.uid, log_number).await;
 }
 
 pub async fn get_last_log(state: &AppState, user_uid: i64) -> Option<LogEntry> {
     let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.number, l.created_on
         FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? ORDER BY l.created_on DESC LIMIT 1;")
-    .bind(user_uid)
-    .fetch_optional(&state.db)
-    .await;
+        .bind(user_uid)
+        .fetch_optional(&state.db)
+        .await;
     if let Err(e) = &log {
         println!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
 }
 
-pub async fn get_last_project_log(state: &AppState, user_uid: i64, project_slug: &str) -> Option<LogEntry> {
+pub async fn get_last_project_log_by_slug(state: &AppState, user_uid: i64, project_slug: &str) -> Option<LogEntry> {
     let log = sqlx::query_as::<_,LogEntry>("SELECT l.uid, l.project_uid, l.title, l.number, l.created_on
         FROM logs l JOIN projects p ON l.project_uid = p.uid WHERE p.user_uid = ? AND p.slug = ? ORDER BY l.created_on DESC, l.number DESC LIMIT 1;")
-    .bind(user_uid)
-    .bind(project_slug)
-    .fetch_optional(&state.db)
-    .await;
+        .bind(user_uid)
+        .bind(project_slug)
+        .fetch_optional(&state.db)
+        .await;
     if let Err(e) = &log {
         println!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
+}
+
+pub async fn get_last_project_log(state: &AppState, project_uid: i64) -> Option<LogEntry> {
+    let log = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? ORDER BY created_on DESC, number DESC LIMIT 1;")
+        .bind(project_uid)
+        .fetch_optional(&state.db)
+        .await;
+    if let Err(e) = &log {
+        println!("DB ERROR: {}", e);
+    }
+    return log.unwrap_or(None);
+}
+
+pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query("UPDATE logs SET title = ? WHERE uid ?;")
+        .bind(title)
+        .bind(log_uid)
+        .fetch_one(&state.db)
+        .await?;
+    return Ok(());
 }

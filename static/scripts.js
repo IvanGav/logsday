@@ -119,15 +119,33 @@ function normalizeExtension(filename) {
 }
 function getUploadPath() {
     let uploadPath = window.location.pathname;
-    if(!uploadPath.endsWith('/')) { uploadPath += "/"; }
-    uploadPath += "upload";
-    return uploadPath;
+    let parts = uploadPath.split('/');
+    // should be in either `/new/log/{projectSlug}` or `/edit/log/{projectSlug}/{logNum}`
+    if(parts.length < 3) { console.error("Was expecting parts to be at least length 3, but it's", parts.length); return "sillylittleerrorbecauseuriiswrong"; }
+    if(!parts[0] == "") { console.error("Was expecting parts[0] to be empty, but it's", parts[0]); return "sillylittleerrorbecauseuriiswrong"; }
+    if(parts[1] == "new" && parts[2] == "log") {
+        return `/new/media/${parts[3]}`;
+    } else if(parts[1] == "edit" && parts[2] == "log") {
+        return `/new/media/${parts[3]}/${parts[4]}`;
+    } else {
+        console.error(parts);
+        return "sillylittleerrorbecauseuriiswrong";
+    }
 }
-function getDeletePath() {
+function getDeletePath(filenameToDelete) {
     let uploadPath = window.location.pathname;
-    if(!uploadPath.endsWith('/')) { uploadPath += "/"; }
-    uploadPath += "delete";
-    return uploadPath;
+    let parts = uploadPath.split('/');
+    // should be in either `/new/log/{projectSlug}` or `/edit/log/{projectSlug}/{logNum}`
+    if(parts.length < 3) { console.error("Was expecting parts to be at least length 3, but it's", parts.length); return "sillylittleerrorbecauseuriiswrong"; }
+    if(!parts[0] == "") { console.error("Was expecting parts[0] to be empty, but it's", parts[0]); return "sillylittleerrorbecauseuriiswrong"; }
+    if(parts[1] == "new" && parts[2] == "log") {
+        return `/del/media/${parts[3]}/new/${filenameToDelete}`;
+    } else if(parts[1] == "edit" && parts[2] == "log") {
+        return `/del/media/${parts[3]}/${parts[4]}/${filenameToDelete}`;
+    } else {
+        console.error(parts);
+        return "sillylittleerrorbecauseuriiswrong";
+    }
 }
 function getUploadedFilesNewListItemDesc(filename, filesize, error = null) {
     let sizestr;
@@ -188,13 +206,12 @@ async function deleteMedia(li) {
     let uploaded = document.getElementById("uploaded-files");
     let filename = li.getAttribute("uploadedfilename");
     li.innerText = 'Removing "' + filename + '"...';
-    try {
-        const response = await fetch(`${getDeletePath()}/${encodeURIComponent(filename)}`, { method: "DELETE" });
-        if (!response.ok) throw new Error("Delete failed"); // should never happen
+    const response = await fetch(getDeletePath(encodeURIComponent(filename)), { method: "DELETE" });
+    if (!response.ok) {
+        console.error(error);
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, error));
+    } else {
         li.remove();
-    } catch (error) {
-        console.log(error);
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0));
     }
 }
 async function uploadFile(li, file, filename) {
@@ -207,12 +224,14 @@ async function uploadFile(li, file, filename) {
         body: formData
     });
     if (!response.ok) {
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, error));
-        return { "error": await response.text() };
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, "Something went wrong"));
     }
     let fileInfo = await response.json();
-    if(fileInfo.filename != filename) { console.log("Filename returned (" + fileInfo.filename + ") does not match generated (" + filename + ")"); }
-    li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, fileInfo.filesize));
+    if(fileInfo.error) {
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, fileInfo.error));
+    } else {
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, fileInfo.filesize));
+    }
     return fileInfo;
 }
 async function renderCreatedOn(div) {

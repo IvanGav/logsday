@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>New Log for <a href="/project/{{ project.slug }}">{{ project.title }}</a></h2>
+    <h2>New Log for <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a></h2>
     <p id="err"></p>
     <form id="log-form" hx-post="/new/log/{{ project.slug }}" hx-target="#err">
         <div class="editor-top-bar">
             <div class="flex-col">
                 <span>Title<sup style="color:red">*</sup></span>
-                <input type="text" name="title" required>
+                <input type="text" name="title" required value="{{ title }}">
             </div>
+            {% if can_upload %}
             <div class="flex-col">
                 <span>Add Media</span>
                 <input type="file" multiple name="media" accept="image/*, video/*" id="media-upload" onchange="uploadAndInsertMedia(this.files); this.value = '';">
             </div>
+            {% endif %}
             <div class="flex-col">
                 <span>Create Log</span>
                 <button type="submit">Create Log</button>
@@ -26,7 +28,7 @@
         <div class="workspace-split" id="drop-zone">
             <div class="pane">
                 <label style="white-space: nowrap;">Content (Markdown)</label>
-                <textarea name="content" id="markdown-input" placeholder="Write your devlog here..." required oninput="updatePreview(this)">{{ md_content }}</textarea>
+                <textarea name="content" id="markdown-input" placeholder="Write your devlog here..." required oninput="updatePreview(this)">{{ md }}</textarea>
             </div>
             <div class="pane">
                 <label>Preview</label>
