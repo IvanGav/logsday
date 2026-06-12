@@ -75,7 +75,7 @@ async fn main() {
         .route("/", get(landing))
         .route("/signup", get(get_signup).post(post_signup))
         .route("/login", get(get_login).post(post_login))
-        .route("/logout", get(get_logout))
+        .route("/logout", get(get_logout).post(post_logout))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/edit/log/{project_slug}/{log_number}", get(get_edit_log).post(post_edit_log))
@@ -340,6 +340,11 @@ async fn get_logout(session: Session) -> impl IntoResponse {
         Ok(_) => { return Redirect::to("/").into_response(); }
         Err(e) => { println!("{}", e); return msg_html("You're not logged in.".into()).into_response(); }
     }
+}
+
+async fn post_logout(session: Session) -> impl IntoResponse {
+    let _ = session.remove::<i64>("uid").await;
+    return (StatusCode::OK, [("HX-Refresh", "true")], "");
 }
 
 // Route /u

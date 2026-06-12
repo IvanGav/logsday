@@ -12,6 +12,4 @@
         <button class="link" hx-post="/del/log/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
         <p id="del-err"></p>
     {% endif %}
-    <!-- TODO TEMPORARY; LATER DO HIGHLIGHTING ON SERVER INSTEAD -->
-    <!-- <script>document.addEventListener('DOMContentLoaded', (event) => { console.log("Yep."); hljs.highlightAll(); });</script> -->
 {% endblock %}

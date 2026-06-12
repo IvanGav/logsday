@@ -8,4 +8,5 @@
 {% endif %}
 <a class="navitem" href="/u/{{ user.username }}">Projects</a>
 <a class="navitem" href="/account">Account</a>
-<a class="navitem" href="/logout">Log Out</a>
+<!-- <a class="navitem" href="/logout">Log Out</a> -->
+ <a class="navitem" hx-trigger="click" hx-post="/logout">Log Out</a>
