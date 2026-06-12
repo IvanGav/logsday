@@ -675,7 +675,7 @@ async fn delete_log_media(AuthdUser(user): AuthdUser, State(state): State<AppSta
 #[template(path = "bits/nav_user.html")]
 struct NavUserBitTemplate {
     user: User,
-    edit_log_project_slug: Option<String>,
+    edit_log_info: Option<(String, i64)>,
 }
 
 #[derive(Template)]
@@ -687,17 +687,20 @@ async fn get_nav_user_bit(session: Session, State(state): State<AppState>) -> im
     match uid {
         Some(uid) => {
             let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return "error".into_response(); };
-            let edit_log_project_slug = match db::get_last_log(&state, user.uid).await {
+            let edit_log_info = match db::get_last_log(&state, user.uid).await {
                 Some(log) => {
                     if week::days_since(log.created_on) == 0 {
-                        Some(db::get_project(&state, log.project_uid).await.unwrap().slug)
+                        Some((
+                            db::get_project(&state, log.project_uid).await.unwrap().slug,
+                            log.number
+                        ))
                     } else {
                         None
                     }
                 },
                 None => None
             };
-            return Html(NavUserBitTemplate{user, edit_log_project_slug}.render().unwrap()).into_response();
+            return Html(NavUserBitTemplate{user, edit_log_info}.render().unwrap()).into_response();
         },
         None => {
             return Html(LoginBitTemplate.render().unwrap()).into_response();
