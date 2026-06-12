@@ -287,6 +287,9 @@ function updatePreview(markdownInput) {
     const rawMarkdown = markdownInput.value;
     const markdownPreview = document.getElementById('markdown-preview');
     markdownPreview.innerHTML = marked.parse(rawMarkdown);
+    markdownPreview.querySelectorAll('pre code').forEach((el) => {
+        hljs.highlightElement(el);
+    });
 }
 
 function setupNewlogListeners() {
@@ -307,5 +310,31 @@ function setupNewlogListeners() {
             uploadAndInsertMedia(files);
         }
     });
-    updatePreview(document.getElementById("markdown-input")); // make sure that if there's any pre-existing text - it's rendered
+    const textarea = document.getElementById("markdown-input");
+    enableTabCapture(textarea);
+    updatePreview(textarea); // make sure that if there's any pre-existing text - it's rendered
+}
+
+function enableTabCapture(textarea) {
+    textarea.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+            e.preventDefault(); // Stop focus from shifting
+            
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            const value = this.value;
+            
+            // Define your tab character (4 spaces is usually best for Markdown layout consistency)
+            const tabChar = "    "; 
+            
+            // Set textarea value to: text before caret + tab + text after caret
+            this.value = value.substring(0, start) + tabChar + value.substring(end);
+            
+            // Put caret back in the correct position (right after the inserted tab)
+            this.selectionStart = this.selectionEnd = start + tabChar.length;
+            
+            // Trigger your preview update manually since 'input' event won't fire natively on programmatic updates
+            updatePreview(this);
+        }
+    });
 }

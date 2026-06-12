@@ -6,10 +6,12 @@
         <span>Created on: <span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
     </div>
     <hr>
-    <div hx-trigger="load" hx-get="/uploads/{{ user.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content"></div>
+    <div hx-trigger="load" hx-get="/uploads/{{ user.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content" hx-on::after:swap="hljs.highlightAll()"></div>
     <hr>
     {% if owner %}
         <button class="link" hx-post="/del/log/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
         <p id="del-err"></p>
     {% endif %}
+    <!-- TODO TEMPORARY; LATER DO HIGHLIGHTING ON SERVER INSTEAD -->
+    <!-- <script>document.addEventListener('DOMContentLoaded', (event) => { console.log("Yep."); hljs.highlightAll(); });</script> -->
 {% endblock %}
