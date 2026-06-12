@@ -147,7 +147,7 @@ function getDeletePath(filenameToDelete) {
         return "sillylittleerrorbecauseuriiswrong";
     }
 }
-function getUploadedFilesNewListItemDesc(filename, filesize, error = null) {
+function getUploadedFilesNewListItemDesc(filename, filepath, filesize, error = null) {
     let sizestr;
     if(filesize > (1024*1024)) {
         sizestr = (filesize/(1024*1024)).toFixed(2) + "MB";
@@ -156,21 +156,26 @@ function getUploadedFilesNewListItemDesc(filename, filesize, error = null) {
     } else {
         sizestr = filesize + "B";
     }
-    let button = document.createElement("button");
-    let txt;
-    let buttonTxt;
+    let desc = document.createElement("p");
     if(!error) {
-        txt = document.createTextNode("" + filename + " (" + sizestr + ")");
-        button.setAttribute("onclick", "deleteMedia(this.parentElement.parentElement)");
-        button.appendChild(document.createTextNode("delete"));
+        desc.appendChild(document.createTextNode("" + filename + " (" + sizestr + ")"));
+        let embedButton = document.createElement("button");
+        embedButton.setAttribute("type", "button");
+        embedButton.setAttribute("onclick", "embedMedia('" + filepath + "')");
+        embedButton.appendChild(document.createTextNode("embed"));
+        desc.appendChild(embedButton);
+        let deleteButton = document.createElement("button");
+        deleteButton.setAttribute("type", "button");
+        deleteButton.setAttribute("onclick", "deleteMedia(this.parentElement.parentElement)");
+        deleteButton.appendChild(document.createTextNode("delete"));
+        desc.appendChild(deleteButton);
     } else {
-        txt = document.createTextNode("Failed to upload '" + filename + "': " + error);
+        desc.appendChild(document.createTextNode("Failed to upload '" + filename + "': " + error));
+        let button = document.createElement("button");
         button.setAttribute("onclick", "this.parentElement.parentElement.remove()");
         button.appendChild(document.createTextNode("confirm"));
+        desc.appendChild(button);
     }
-    let desc = document.createElement("p");
-    desc.appendChild(txt);
-    desc.appendChild(button);
     return desc;
 }
 function getUploadedFilesNewListItem(filename) {
@@ -182,18 +187,25 @@ function getUploadedFilesNewListItem(filename) {
 }
 async function uploadAndInsertMedia(files) {
     let uploaded = document.getElementById("uploaded-files");
+    let existingFiles = Array.from(uploaded.querySelectorAll('.uploaded-file')).map(li => (
+        { "filename": li.getAttribute("uploadedfilename"), "li": li }
+    ));
     let uploadPromises = [];
     for (let i = 0; i < files.length; i++) {
         let file = files[i];
         let filename = normalizeExtension(file.name);
-        let li = uploaded.appendChild(getUploadedFilesNewListItem(filename));
+        let li = null;
+        for(let file of existingFiles) {
+            if(file.filename == filename) { li = file.li; break; }
+        }
+        if(li == null) { li = uploaded.appendChild(getUploadedFilesNewListItem(filename)); }
         uploadPromises.push(uploadFile(li, file, filename));
     }
     try {
         let responses = await Promise.allSettled(uploadPromises);
         let insertEmbeds = "";
         for (let response of responses) {
-            if (response.value.error == null) { insertEmbeds += "\n![](" + response.value.filepath + ")\n"; }
+            if (!('error' in response.value)) { insertEmbeds += "\n![](" + response.value.filepath + ")\n"; }
         }
         let markdownInput = document.getElementById("markdown-input");
         markdownInput.value += insertEmbeds;
@@ -209,7 +221,7 @@ async function deleteMedia(li) {
     const response = await fetch(getDeletePath(encodeURIComponent(filename)), { method: "DELETE" });
     if (!response.ok) {
         console.error(error);
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, error));
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, "", 0, error));
     } else {
         li.remove();
     }
@@ -219,18 +231,17 @@ async function uploadFile(li, file, filename) {
     formData.append("file", file, filename);
     let uploadPath = getUploadPath();
     const response = await fetch(uploadPath, {
-        // No 'Content-Type' header here as fetch handles it automatically
         method: "POST",
         body: formData
     });
     if (!response.ok) {
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, "Something went wrong"));
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, "", 0, "Something went wrong"));
     }
     let fileInfo = await response.json();
     if(fileInfo.error) {
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, 0, fileInfo.error));
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, "", 0, fileInfo.error));
     } else {
-        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, fileInfo.filesize));
+        li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(filename, fileInfo.filepath, fileInfo.filesize));
     }
     return fileInfo;
 }
@@ -250,6 +261,24 @@ async function renderCreatedOn(div) {
         div.innerText = dateString;
     } catch(e) {
         console.log("Temporal formatting failed:", e);
+    }
+}
+
+function embedMedia(path) {
+    let markdownInput = document.getElementById("markdown-input");
+    markdownInput.value += "\n![](" + path + ")\n";
+    updatePreview(markdownInput);
+}
+
+// sidebar
+function toggleSidebar() {
+    const sidebar = document.getElementById('media-sidebar');
+    sidebar.classList.toggle('collapsed');
+    const btn = document.getElementById('show-files-button');
+    if (sidebar.classList.contains('collapsed')) {
+        btn.innerText = 'Show Files';
+    } else {
+        btn.innerText = 'Hide Files';
     }
 }
 

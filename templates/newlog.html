@@ -3,40 +3,50 @@
 {% block content %}
     <h2>New Log for <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a></h2>
     <p id="err"></p>
-    <form id="log-form" hx-post="/new/log/{{ project.slug }}" hx-target="#err">
-        <div class="editor-top-bar">
-            <div class="flex-col">
-                <span>Title<sup style="color:red">*</sup></span>
-                <input type="text" name="title" required value="{{ title }}">
+    <form id="log-form" hx-post="{{ upload_path }}" hx-target="#err" class="editor-layout-wrapper">
+        <div class="main-editor-area">
+            <div class="editor-top-bar">
+                <div class="flex-col">
+                    <span>Title<sup style="color:red">*</sup></span>
+                    <input type="text" name="title" required value="{{ title }}">
+                </div>
+                <div class="flex-col">
+                    <span>Add Media</span>
+                    <input type="file" multiple name="media" accept="image/*, video/*" id="media-upload" onchange="uploadAndInsertMedia(this.files); this.value = '';">
+                </div>
+                <div class="flex-col">
+                    <span>Submit Log</span>
+                    <button type="submit">Submit Log</button>
+                </div>
+                <button id="show-files-button" type="button" onclick="toggleSidebar()">Hide Files</button>
             </div>
-            {% if can_upload %}
-            <div class="flex-col">
-                <span>Add Media</span>
-                <input type="file" multiple name="media" accept="image/*, video/*" id="media-upload" onchange="uploadAndInsertMedia(this.files); this.value = '';">
-            </div>
-            {% endif %}
-            <div class="flex-col">
-                <span>Create Log</span>
-                <button type="submit">Create Log</button>
+            <div class="workspace-split" id="drop-zone">
+                <div class="pane">
+                    <label style="white-space: nowrap;">Content (Markdown)</label>
+                    <textarea name="content" id="markdown-input" placeholder="Write your devlog here..." required oninput="updatePreview(this)">{{ md }}</textarea>
+                </div>
+                <div class="pane">
+                    <label>Preview</label>
+                    <div id="markdown-preview" class="preview-box log-content"></div>
+                </div>
+                <div class="drag-overlay">Upload files</div>
             </div>
         </div>
-        <div class="flex-col">
-            <span>Uploaded files:</span>
-            <div id="uploaded-files"></div>
-        </div>
-        <hr>
-        <div class="workspace-split" id="drop-zone">
-            <div class="pane">
-                <label style="white-space: nowrap;">Content (Markdown)</label>
-                <textarea name="content" id="markdown-input" placeholder="Write your devlog here..." required oninput="updatePreview(this)">{{ md }}</textarea>
+        <div id="media-sidebar">
+            <div class="sidebar-inner-content">
+                <span>Uploaded Files:</span>
+                <div id="uploaded-files"></div>
             </div>
-            <div class="pane">
-                <label>Preview</label>
-                <div id="markdown-preview" class="preview-box log-content"></div>
-            </div>
-            <div class="drag-overlay">Upload files</div>
         </div>
-        <hr>
-        <script>setupNewlogListeners()</script>
     </form>
+    <script>setupNewlogListeners()</script>
+    <script>
+        let uploaded = document.getElementById("uploaded-files");
+        const existingFiles = {{ files_json_list | safe }};
+        for(let file of existingFiles) {
+            let li = getUploadedFilesNewListItem(file.filename)
+            li.firstChild.replaceWith(getUploadedFilesNewListItemDesc(file.filename, file.filepath, file.filesize));
+            uploaded.appendChild(li);
+        }
+    </script>
 {% endblock %}

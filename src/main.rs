@@ -4,7 +4,6 @@ use axum::{
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
-use serde_json::json;
 use std::{collections::HashMap, fs};
 use tower_http::services::ServeDir;
 use sqlx::sqlite::SqlitePool;
@@ -13,7 +12,7 @@ use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
 
-use crate::{filestuff::MediaType, newlog::NewlogResult};
+use crate::{filestuff::MediaType, newlog::{NewlogResult, error_json}};
 
 mod db;
 mod slug;
@@ -35,7 +34,8 @@ macro_rules! get_or {
     ($expr:expr, $fallback:expr, err) => {
         match $expr {
             Ok(val) => val,
-            Err(_) => {
+            Err(e) => {
+                println!("-- {}: {e}", line!());
                 return $fallback.into_response();
             }
         }
@@ -50,12 +50,6 @@ pub fn get_weekday_name(mut cur_day: i64) -> &'static str {
 
 pub fn msg_html(message: String) -> Html<String> {
     Html(MessageTemplate { message }.render().unwrap())
-}
-
-pub fn error_json(message: &str) -> Json<serde_json::Value> {
-    Json::from(json!({
-        "error": message,
-    }))
 }
 
 #[derive(Clone)]
@@ -469,17 +463,26 @@ async fn post_new_project(State(state): State<AppState>, AuthdUser(user): AuthdU
 
 #[derive(Template)]
 #[template(path = "newlog.html")]
-struct NewLogTemplate {
+struct UploadLogTemplate {
     user: User,
     project: Project,
     title: String,
     md: String,
-    can_upload: bool,
+    upload_path: String,
+    files_json_list: String,
+}
+
+impl UploadLogTemplate {
+    fn new(user: User, project: Project, log_num: i64) -> UploadLogTemplate {
+        let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_num)).unwrap_or("[]".into());
+        let upload_path = format!("/new/log/{}", &project.slug);
+        UploadLogTemplate { user, project, title: "".into(), md: "".into(), upload_path, files_json_list }
+    }
 }
 
 async fn get_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
     match newlog::newlog_num(&state, &user, &project_slug).await {
-        NewlogResult::New(project, _) => { return Html(NewLogTemplate{user, project, title: "".into(), md: "".into(), can_upload: true}.render().unwrap()).into_response(); },
+        NewlogResult::New(project, num) => { return Html(UploadLogTemplate::new(user, project, num).render().unwrap()).into_response(); },
         NewlogResult::NotLogsday => { return msg_html("Not your Logsday! Go touch some logs!".into()).into_response(); },
         NewlogResult::AlreadyUploaded => { return msg_html("You've already uploaded a log this week! Go touch some logs and come back next week!".into()).into_response(); },
         NewlogResult::ProjectNotFound => { return msg_html("Project doesn't exist!".into()).into_response(); }
@@ -500,12 +503,15 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
             let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
             let log_content_path = format!("{}/{}", &log_path, "index.md");
             let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
+            let html_render = filestuff::render_markdown_to_html(&form.content);
+            let linked_size = get_or!(filestuff::count_log_directory_size(&log_path, &html_render), "Something went wrong when looking at embedded files", err);
+            if linked_size > 100 * 1024 * 1024 { return "Your log must be smaller than 100MB".into_response(); }
             match db::create_log(&state, project.uid, &form.title, log_number).await {
                 Ok(_) => {
-                    if let Err(e) = tokio::fs::create_dir_all(log_path).await { println!("{}", e); return "couldn't create log dir".into_response(); }
-                    let html_render = filestuff::render_markdown_to_html(&form.content);
-                    if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "couldn't write content".into_response(); }
-                    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "couldn't write rendered content".into_response(); }
+                    if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return "Couldn't create log dir".into_response(); }
+                    if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
+                    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
+                    if let Err(e) = filestuff::cleanup_log_directory(&log_path) { println!("couldn't clean up: {}", e); }
                     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
                 },
                 Err(e) => {
@@ -516,7 +522,7 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
         },
         NewlogResult::NotLogsday => { return "Not your Logsday! Go touch some logs!".into_response(); },
         NewlogResult::AlreadyUploaded => { return "You've already uploaded a log this week! Go touch some logs and come back next week!".into_response(); },
-        NewlogResult::ProjectNotFound => { return "Project doesn't exist!".into_response(); }
+        NewlogResult::ProjectNotFound => { return "Project doesn't exist! Check the URL for misspelled project slug you silly.".into_response(); }
     }
 }
 
@@ -525,12 +531,14 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
 async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, i64)>) -> impl IntoResponse {
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, "Log does not exist");
-    let md = get_or!(fs::read_to_string(format!("uploads/users/{}/{}/{}/index.md", &user.username, &project_slug, log_number)), "Database error", err);
+    let md = get_or!(fs::read_to_string(format!("uploads/users/{}/{}/{}/index.md", &user.username, &project_slug, log_number)), "Cannot find log md file", err);
     // Can only edit today's logs
     if !user.admin && !log.can_edit() {
         return msg_html("You can only edit logs you created today.".into()).into_response();
     }
-    return Html(NewLogTemplate{user, project, title: log.title, md, can_upload: true}.render().unwrap()).into_response();
+    let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_number)).unwrap_or("[]".into());
+    let upload_path = format!("/edit/log/{}/{}", &project.slug, log_number);
+    return Html(UploadLogTemplate{user, project, title: log.title, md, upload_path, files_json_list}.render().unwrap()).into_response();
 }
 
 async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
@@ -540,11 +548,14 @@ async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>
     let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
     let log_content_path = format!("{}/{}", &log_path, "index.md");
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
-    if let Err(e) = db::update_log(&state, log.uid, &form.title).await { println!("{}", e); return "Database error".into_response(); }
     let html_render = filestuff::render_markdown_to_html(&form.content);
+    let linked_size = get_or!(filestuff::count_log_directory_size(&log_path, &html_render), "Something went wrong when looking at embedded files", err);
+    if linked_size > 100 * 1024 * 1024 { return "Your log must be smaller than 100MB".into_response(); }
+    if let Err(e) = db::update_log(&state, log.uid, &form.title).await { println!("{}", e); return "Database error".into_response(); }
     // the log must already exist; no need to re-create the log path
     if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
     if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
+    if let Err(e) = filestuff::cleanup_log_directory(&log_path) { println!("{}", e); }
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 
@@ -570,7 +581,7 @@ async fn post_del_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
     if !db::delete_log(&state, log.uid).await {
         return "Log does not exist or cannot be deleted".into_response();
     }
-    if let Err(e) = tokio::fs::remove_dir_all(format!("uploads/users/{}/{}/{}", user.username, &project_slug, log_number)).await {
+    if let Err(e) = fs::remove_dir_all(format!("uploads/users/{}/{}/{}", user.username, &project_slug, log_number)) {
         println!("{}", e);
         return "Could not clean up uploads directory after deletion".into_response();
     }

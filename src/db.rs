@@ -214,10 +214,10 @@ pub async fn get_last_project_log(state: &AppState, project_uid: i64) -> Option<
 }
 
 pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(), sqlx::Error> {
-    let _ = sqlx::query("UPDATE logs SET title = ? WHERE uid ?;")
+    let _ = sqlx::query("UPDATE logs SET title = ? WHERE uid = ?;")
         .bind(title)
         .bind(log_uid)
-        .fetch_one(&state.db)
+        .execute(&state.db)
         .await?;
     return Ok(());
 }

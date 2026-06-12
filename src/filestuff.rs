@@ -1,7 +1,6 @@
-use std::{io::Cursor, path::Path};
+use std::{fs, io::Cursor, path::Path, collections::HashSet};
 use image::ImageFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
-use tokio::fs;
 
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
@@ -119,9 +118,9 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
 
 pub async fn get_directory_size_bytes<P: AsRef<Path>>(dir_path: P) -> std::io::Result<u64> {
     let mut total_size = 0;
-    let mut entries = fs::read_dir(dir_path).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let metadata = entry.metadata().await?;
+    let mut entries = fs::read_dir(dir_path)?;
+    while let Some(entry) = entries.next() {
+        let metadata = entry?.metadata()?;
         if metadata.is_file() {
             total_size += metadata.len();
         }
@@ -138,65 +137,61 @@ pub fn log_dir_exists(username: &str, project_slug: &str, log_num: i64) -> bool 
     return Path::new(&format!("uploads/users/{}/{}/{}", username, project_slug, log_num)).exists();
 }
 
-// little gemini AI gave me this function; seems fine; not tested; wants me to use `scraper`; what is 1 more dependency to a 100,000 dependency project, eh?
-// use std::collections::HashSet;
-// use std::path::Path;
-// use tokio::fs;
-// use scraper::{Html, Selector};
-// pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
-//     let dir = dir_path.as_ref();
-//     let index_path = dir.join("index.html");
+/// Count the size of the media files linked 
+pub fn count_log_directory_size<P: AsRef<Path>>(dir_path: P, log_html_content: &str) -> std::io::Result<u64> {
+    let dir = dir_path.as_ref();
+    let document = scraper::Html::parse_document(&log_html_content);
+    let mut linked_files = HashSet::new();
+    // Look for tags that use 'src' attributes (img, video, audio, source)
+    let src_selector = scraper::Selector::parse("[src]").unwrap();
+    for element in document.select(&src_selector) {
+        if let Some(src_val) = element.value().attr("src") {
+            if let Some(filename) = Path::new(src_val).file_name() {
+                linked_files.insert(filename.to_string_lossy().into_owned()); // TODO why `to_string_lossy`? why not `to_str`? because it may fail? but it really shouldn't
+            }
+        }
+    }
+    let mut all_files = match fs::read_dir(dir) { Ok(f) => f, Err(_) => { return Ok(0); }};
+    let mut total_size = 0;
+    while let Some(file) = all_files.next() {
+        let file_path = file?.path();
+        let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned(); // TODO again the same thing; also it's safe to unwrap because we're already just reading the existing dir
+        if !linked_files.contains(&file_name) {
+            total_size += Path::new(&file_path).metadata()?.len();
+        }
+    }
+    return Ok(total_size);
+}
 
-//     // Scenario A: No index.html -> Delete everything
-//     if !index_path.exists() {
-//         let mut entries = fs::read_dir(dir).await?;
-//         while let Some(entry) = entries.next_entry().await? {
-//             let path = entry.path();
-//             if path.is_file() {
-//                 fs::remove_file(path).await?;
-//             }
-//         }
-//         return Ok(());
-//     }
-
-//     // Scenario B: index.html exists -> Find what's linked
-//     let html_content = fs::read_to_string(&index_path).await?;
-//     let document = Html::parse_document(&html_content);
-    
-//     // Create a set to hold linked filenames
-//     let mut linked_files = HashSet::new();
-
-//     // Look for tags that use 'src' attributes (img, video, audio, source)
-//     let src_selector = Selector::parse("[src]").unwrap();
-//     for element in document.select(&src_selector) {
-//         if let Some(src_val) = element.value().attr("src") {
-//             // Extract just the filename out of a web path like "/uploads/john/log1/pic.png"
-//             if let Some(filename) = Path::new(src_val).file_name() {
-//                 linked_files.insert(filename.to_string_lossy().into_owned());
-//             }
-//         }
-//     }
-
-//     // Now, loop through the physical files and delete orphans
-//     let mut entries = fs::read_dir(dir).await?;
-//     while let Some(entry) = entries.next_entry().await? {
-//         let file_path = entry.path();
-        
-//         if file_path.is_file() {
-//             let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned();
-
-//             // DO NOT delete index.html itself!
-//             if file_name == "index.html" {
-//                 continue;
-//             }
-
-//             // If the file is not found in our linked_files HashSet, it's an orphan!
-//             if !linked_files.contains(&file_name) {
-//                 println!("Deleting orphaned file: {}", file_name);
-//                 fs::remove_file(file_path).await?;
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }
+/// Clean up the log directory - only keep the media files linked in index.md/index.html
+pub fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
+    let dir = dir_path.as_ref();
+    let index_path = dir.join("index.html");
+    // No index.html = log wasn't uploaded in the end; just delete the entire dir
+    if !index_path.exists() {
+        fs::remove_dir_all(dir)?;
+        return Ok(());
+    }
+    let html_content = fs::read_to_string(&index_path)?;
+    let document = scraper::Html::parse_document(&html_content);
+    let mut linked_files = HashSet::new();
+    // Look for tags that use 'src' attributes (img, video, audio, source)
+    let src_selector = scraper::Selector::parse("[src]").unwrap();
+    for element in document.select(&src_selector) {
+        if let Some(src_val) = element.value().attr("src") {
+            if let Some(filename) = Path::new(src_val).file_name() {
+                linked_files.insert(filename.to_string_lossy().into_owned()); // TODO why `to_string_lossy`?
+            }
+        }
+    }
+    let mut all_files = fs::read_dir(dir)?;
+    while let Some(file) = all_files.next() {
+        let file_path = file?.path();
+        let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned(); // TODO again the same thing; also it's safe to unwrap because we're already just reading the existing dir
+        if file_name == "index.html" || file_name == "index.md" { continue; }
+        if !linked_files.contains(&file_name) {
+            fs::remove_file(file_path)?;
+        }
+    }
+    return Ok(());
+}
