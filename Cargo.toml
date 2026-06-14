@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+argon2 = { version = "0.5.3", features = ["std"] }
 askama = "0.13.1"
 axum = { version = "0.8.9", features = ["macros", "multipart"] }
 axum_typed_multipart = "0.16.5"

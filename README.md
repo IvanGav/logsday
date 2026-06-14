@@ -39,18 +39,20 @@ You will be able to upload a devlog exactly once a week.
 
 - Database:
   - `SQLite`
-  - `sqlx` crate for Rust interface with SQLite db
 - Web:
   - `HTMX`
   - `marked.js` live markdown preview
-  - `SortableJS` may be used for specific interactions
-  - `vlitejs` may be used for the video player
-    - HLS (HTTP Live Streaming) is a better streaming format; so, look into it later
-- Other Crates:
+  - `highlight.js` highlighting code blocks
+- Rust Crates:
   - `axum` for web server basics
   - `aksama` for template rendering
-  - `tower_sessions` for easy sessions
+  - `argon2` for password hashing
   - `pulldown-cmark` for markdown to html rendering
+  - `sqlx` for interacting with sqlite db
+  - `infer` for scanning magic bytes of files
+  - `image` for converting image formats
+  - `scraper` for looking through html files for linked/embedded files
+  - `tower_sessions` for easy sessions
   - `axum_typed_multipart` for convenience, for now
 
 ## Notes

@@ -19,6 +19,7 @@ mod slug;
 mod week;
 mod filestuff;
 mod newlog;
+mod password;
 
 const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satruday", "Sunday"];
 
@@ -273,10 +274,12 @@ async fn post_signup(
     }
     if (form.week_len != 7 && form.week_len != 8) || form.logsday_weekday < 0 || form.logsday_weekday > 6 { return "no.".into_response(); }
     let logsday_weekday = if form.week_len == 7 { form.logsday_weekday } else { form.logsday_weekday + 1 };
-    let result = db::create_user(&state, &username, &displayname, &form.password, form.week_len, logsday_weekday).await;
+    let password = get_or!(password::hash(&form.password), "Could not hash password; should not be possible", err);
+    if !password::verify(&form.password, &password) { return "Could not verify password after hashing it; should not be possible".into_response(); }
+    let result = db::create_user(&state, &username, &displayname, &password, form.week_len, logsday_weekday).await;
     match result {
         Ok(_) => {
-            if let Ok(_) = tokio::fs::create_dir_all(format!("uploads/users/{}", username)).await {
+            if let Ok(_) = fs::create_dir_all(format!("uploads/users/{}", username)) {
                 let u = db::get_user_by_username(&state, &username).await;
                 if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
                 let uid = u.unwrap().uid;
@@ -325,7 +328,7 @@ async fn post_login(
 ) -> impl IntoResponse {
     let user = db::get_user_by_username(&state, &form.username).await;
     if let Some(u) = user {
-        if u.password == form.password {
+        if password::verify(&form.password, &u.password) {
             session.insert("uid", u.uid).await.unwrap();
             return hx_redirect("/u").into_response();
         }
@@ -455,7 +458,7 @@ async fn post_new_project(State(state): State<AppState>, AuthdUser(user): AuthdU
     let webp_img = webp_img.unwrap();
 
     if let Ok(_) = db::create_project(&state, user.uid, &data.title, &pslug, &data.description).await {
-        if let Ok(_) = tokio::fs::create_dir_all(project_path).await {
+        if let Ok(_) = fs::create_dir_all(project_path) {
             if let Ok(_) = fs::write(thumbnail_path, &webp_img) {
                 return hx_redirect("/u").into_response();
             }
