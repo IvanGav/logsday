@@ -78,6 +78,7 @@ async fn main() {
         .route("/signup", get(get_signup).post(post_signup))
         .route("/login", get(get_login).post(post_login))
         .route("/logout", get(get_logout).post(post_logout))
+        .route("/mdguide", get(get_mdguide))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/edit/log/{project_slug}/{log_number}", get(get_edit_log).post(post_edit_log))
@@ -368,6 +369,16 @@ async fn get_logout(session: Session) -> impl IntoResponse {
 async fn post_logout(session: Session) -> impl IntoResponse {
     let _ = session.remove::<i64>("uid").await;
     return (StatusCode::OK, [("HX-Refresh", "true")], "");
+}
+
+// Route /mdguide
+
+#[derive(Template)]
+#[template(path = "mdguide.html")]
+struct MdGuideTemplate;
+
+async fn get_mdguide() -> impl IntoResponse {
+    return Html(MdGuideTemplate.render().unwrap()).into_response();
 }
 
 // Route /u

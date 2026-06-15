@@ -292,29 +292,6 @@ function updatePreview(markdownInput) {
     });
 }
 
-function setupNewlogListeners() {
-    const dropZone = document.getElementById('drop-zone');
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, e => e.preventDefault(), false);
-    });
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-active'), false);
-    });
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-active'), false);
-    });
-    dropZone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files.length > 0) {
-            uploadAndInsertMedia(files);
-        }
-    });
-    const textarea = document.getElementById("markdown-input");
-    enableTabCapture(textarea);
-    updatePreview(textarea); // make sure that if there's any pre-existing text - it's rendered
-}
-
 function enableTabCapture(textarea) {
     textarea.addEventListener('keydown', function(e) {
         if (e.key === 'Tab') {
@@ -337,4 +314,31 @@ function enableTabCapture(textarea) {
             updatePreview(this);
         }
     });
+}
+
+function setupPreview() {
+    const textarea = document.getElementById("markdown-input");
+    enableTabCapture(textarea);
+    updatePreview(textarea); // make sure that if there's any pre-existing text - it's rendered
+}
+
+function setupNewlogListeners() {
+    const dropZone = document.getElementById('drop-zone');
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => e.preventDefault(), false);
+    });
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-active'), false);
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-active'), false);
+    });
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files.length > 0) {
+            uploadAndInsertMedia(files);
+        }
+    });
+    setupPreview();
 }

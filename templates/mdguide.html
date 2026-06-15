@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Markdown guide</h2>
+    <div class="editor-layout-wrapper">
+    <div class="main-editor-area">
+        <div class="workspace-split">
+            <!-- <div class="editor-top-bar"></div> -->
+                <div class="pane">
+                    <label style="white-space: nowrap;">Content (Markdown)</label>
+                    <textarea name="content" id="markdown-input" placeholder="Write your devlog here..." required oninput="updatePreview(this)">
+Hey fellow logger!
+
+This is **markdown** editor. It's a special markup language, which makes it *really easy* to add formatting to text.
+
+On the right, you can see the preview (and feel free to modify left side to experiment!).
+
+*Italic*, **Bold**, ***Very Important***, ~Crossed out~.
+
+You can insert links, such as [this](https://www.markdownguide.org/cheat-sheet/) really nice markdown guide.
+
+If two lines are next to each other
+like this
+then they're on the same line!!!
+
+You need to have an empty line to separate them!  
+Or two spaces at the end of the line! Click here ^
+
+# Logsday
+## Log
+### Logger
+
+Reasons to like logsday:
+- It's fun
+- You can upload videos
+- You can share logs with friends
+- It's free and open source
+- You can make markdown lists with `-`
+1. Or with numbers
+3. Any numbers
+
+Now, `this is code` and it looks slightly different from normal text.
+
+```js
+// And this is a code block;
+// specify language above (js = JavaScript, rs = Rust, etc)
+function logsday() {
+    this.does(proper[highlighting]);
+}
+```
+
+And the most important part - you can embed images, gifs, videos!
+![from Wikipedia](https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Mallard-drake-chicago-march-2024.jpg/960px-Mallard-drake-chicago-march-2024.jpg)
+![from Logsday](/static/kyaru.gif)
+![videos too](/static/calamitas.mp4)
+
+---
+
+That's about it for the tutorial! Some notes:
+- The renderer uses [commonmark spec](https://commonmark.org/)
+- Embedded html is disallowed
+<div>don't even try</div>  
+Due to <span style="color:red;">jank</span> this will actually show up as though it does.. But trust me it will not, after you submit the log.
+                    </textarea>
+                </div>
+                <div class="pane">
+                    <label>Preview</label>
+                    <div id="markdown-preview" class="preview-box log-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>setupPreview()</script>
+{% endblock %}

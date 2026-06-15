@@ -19,6 +19,7 @@ You will be able to upload a devlog exactly once a week.
 - `/signup` => `templates/signup.html`
 - `/login` => `templates/login.html`
 - `/logout` - logout and redirect to `/`
+- `/mdguide` => `templates/mdguide.html`
 - `/u` => `templates/viewuser.html` - your profile; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/viewuser.html` - user's profile + list of their projects; when your page, give extra options
 - `/u/{username}/{project_slug}` => `templates/viewproject.html` - project page + list of logs; when your project, give extra options
