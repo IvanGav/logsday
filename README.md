@@ -52,6 +52,7 @@ You will be able to upload a devlog exactly once a week.
   - `infer` for scanning magic bytes of files
   - `image` for converting image formats
   - `scraper` for looking through html files for linked/embedded files
+  - `tokio_cron_scheduler` for cron jobs from Rust, for now
   - `tower_sessions` for easy sessions
   - `axum_typed_multipart` for convenience, for now
 

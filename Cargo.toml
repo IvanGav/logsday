@@ -16,6 +16,7 @@ serde = "1.0.228"
 serde_json = "1.0.149"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "runtime-tokio-rustls", "sqlite", "chrono"] }
 tokio = { version = "1.52.3", features = ["full", "macros", "rt-multi-thread"] }
+tokio-cron-scheduler = "0.15.1"
 tower-http = { version = "0.6.10", features = ["fs", "normalize-path"] }
 tower-layer = "0.3.3"
 tower-sessions = "0.15.0"

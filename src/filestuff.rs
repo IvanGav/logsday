@@ -60,7 +60,7 @@ pub fn convert_to_webp(raw_bytes: &[u8]) -> Result<Vec<u8>, image::ImageError> {
     let img = img.thumbnail(400, 400);
     let mut webp_buffer = Vec::new();
     img.write_to(&mut Cursor::new(&mut webp_buffer), ImageFormat::WebP)?;
-    Ok(webp_buffer)
+    return Ok(webp_buffer);
 }
 
 // disallow embedding html
@@ -125,7 +125,7 @@ pub async fn get_directory_size_bytes<P: AsRef<Path>>(dir_path: P) -> std::io::R
             total_size += metadata.len();
         }
     }
-    Ok(total_size)
+    return Ok(total_size);
 }
 
 pub async fn verify_magic_bytes_match_extension(filename: &str, bytes: &[u8]) -> bool {
@@ -193,5 +193,25 @@ pub fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()>
             fs::remove_file(file_path)?;
         }
     }
-    return Ok(());
+    Ok(())
+}
+
+pub fn cleanup_all_log_directories() -> std::io::Result<()> {
+    let mut users = fs::read_dir("uploads/users")?;
+    while let Some(userdir) = users.next() {
+        let userdir = userdir?;
+        if !userdir.metadata()?.is_dir() { continue; }
+        let mut projects = fs::read_dir(userdir.path())?;
+        while let Some(projectdir) = projects.next() {
+            let projectdir = projectdir?;
+            if !projectdir.metadata()?.is_dir() { continue; }
+            let mut logs = fs::read_dir(projectdir.path())?;
+            while let Some(logdir) = logs.next() {
+                let logdir = logdir?;
+                if !logdir.metadata()?.is_dir() { continue; }
+                cleanup_log_directory(logdir.path())?;
+            }
+        }
+    }
+    Ok(())
 }

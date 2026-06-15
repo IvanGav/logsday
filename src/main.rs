@@ -11,6 +11,7 @@ use serde::Deserialize;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
+use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::{filestuff::MediaType, newlog::{NewlogResult, error_json}};
 
@@ -100,6 +101,25 @@ async fn main() {
 
     let app = NormalizePath::trim_trailing_slash(app.into_service());
     let app = app.into_make_service();
+
+    // set up the cleanup cron job
+    let sched = JobScheduler::new().await.unwrap();
+    let cleanup_job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
+        println!("STARTED CLEANUP");
+        Box::pin(async move {
+            if let Err(e) = filestuff::cleanup_all_log_directories() {
+                println!("FAILED CLEANUP - {e}");
+            }
+        })
+    })
+    .unwrap();
+    sched.add(cleanup_job).await.unwrap();
+    sched.start().await.unwrap();
+    
+    println!("STARTED STARTUP CLEANUP");
+    if let Err(e) = filestuff::cleanup_all_log_directories() {
+        println!("FAILED STARTUP CLEANUP - {e}");
+    }
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3009").await.unwrap();
     axum::serve(listener, app).await.unwrap();
