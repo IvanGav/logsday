@@ -116,11 +116,6 @@ async fn main() {
     .unwrap();
     sched.add(cleanup_job).await.unwrap();
     sched.start().await.unwrap();
-    
-    println!("STARTED STARTUP CLEANUP");
-    if let Err(e) = filestuff::cleanup_all_log_directories() {
-        println!("FAILED STARTUP CLEANUP - {e}");
-    }
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3009").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -475,16 +470,18 @@ async fn post_new_project(State(state): State<AppState>, AuthdUser(user): AuthdU
     if data.title.len() == 0 || pslug.len() == 0 { return "title or slug is empty".into_response(); }
     if data.description.len() > 65535 { return "description too long".into_response(); }
 
-    let content_type = &data.thumbnail.metadata.content_type;
-    if let None = content_type { return "Could not get file type".into_response(); }
-    let content_type: &str = content_type.as_ref().unwrap();
+    let (thumbnail, content_type) = if data.thumbnail.contents.len() == 0 {
+        (&fs::read("static/favicon.ico").unwrap()[..], "image/x-icon")
+    } else {
+        (&data.thumbnail.contents[..], data.thumbnail.metadata.content_type.as_ref().unwrap() as &str)
+    };
 
     if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
     if !slug::slug_valid(&pslug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &user.username, &pslug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
 
-    let webp_img = filestuff::convert_to_webp(&data.thumbnail.contents);
+    let webp_img = filestuff::convert_to_webp(thumbnail);
     if let Err(e) = webp_img { return e.to_string().into_response(); }
     let webp_img = webp_img.unwrap();
 
