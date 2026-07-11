@@ -145,3 +145,5 @@ CREATE TABLE log_comments (
 - Add "report" button
 - Refactor the uri paths to be better
 - Rework the navbar
+- Compress videos with FFmpeg
+- Add miscellaneous pages
