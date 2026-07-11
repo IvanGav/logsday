@@ -18,7 +18,7 @@ pub fn media_type(filename: &str) -> MediaType {
     if split.0 == "" { return MediaType::Unsupported; } // no name -> `.ext` is the name
     match split.1.to_lowercase().as_str() {
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "ico" /* | "svg" */ => MediaType::Image,
-        "mp4" | "mpeg" | "webm" | "ogv" | "mov" => MediaType::Video,
+        "mp4" | "mpeg" | "webm" | "ogv" | "ogg" /* | "mov" */ => MediaType::Video,
         "mp3" | "wav" | "oga" | "weba" => MediaType::Audio,
         _ => MediaType::Unsupported,
     }
@@ -29,8 +29,8 @@ pub fn media_type(filename: &str) -> MediaType {
 pub fn mime_media_type(mime_type: &str) -> MediaType {
     let mime_type = mime_type.split_once(';').unwrap_or((mime_type, "")).0; // get rid of parameters: `type/subtype;parameter=value`
     match mime_type.to_lowercase().as_str() {
-        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/x-icon" | "image/svg+xml" => MediaType::Image,
-        "video/mp4" | "video/mpeg" | "video/webm" | "video/ogg" | "video/quicktime" => MediaType::Video,
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/x-icon" /* | "image/svg+xml" */ => MediaType::Image,
+        "video/mp4" | "video/mpeg" | "video/webm" | "video/ogg" /* | "video/quicktime" */ => MediaType::Video,
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/webm" => MediaType::Audio,
         u => { println!("{u}"); MediaType::Unsupported },
     }
@@ -218,6 +218,7 @@ pub fn cleanup_all_log_directories() -> std::io::Result<()> {
 }
 
 pub async fn compress_video(input_path: &str, output_path: &str) -> std::io::Result<()> {
+    // maybe try using: nice -n 19 ffmpeg -threads 1 -i input.mov -vf "scale='min(1920,iw)':-2" -c:v libx264 -preset veryfast -crf 24 -x264opts rc-lookahead=15 -c:a aac -b:a 128k output.mp4
     let status = Command::new("ffmpeg")
         .args([
             "-i", input_path,

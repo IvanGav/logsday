@@ -147,5 +147,6 @@ CREATE TABLE log_comments (
 - Rework the navbar
 - Compress videos with FFmpeg
 - Add miscellaneous pages
+- Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Fix Bugs:
   - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.
