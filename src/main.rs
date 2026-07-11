@@ -13,7 +13,7 @@ use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::{db::get_comments_for_log, filestuff::MediaType, newlog::{NewlogResult, error_json}};
+use crate::{filestuff::MediaType, newlog::{NewlogResult, error_json}};
 
 mod db;
 mod slug;
@@ -79,6 +79,7 @@ async fn main() {
         .route("/login", get(get_login).post(post_login))
         .route("/logout", get(get_logout).post(post_logout))
         .route("/mdguide", get(get_mdguide))
+        .route("/credits", get(get_credits))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/edit/log/{project_slug}/{log_number}", get(get_edit_log).post(post_edit_log))
@@ -392,6 +393,16 @@ struct MdGuideTemplate;
 
 async fn get_mdguide() -> impl IntoResponse {
     return Html(MdGuideTemplate.render().unwrap()).into_response();
+}
+
+// Route /credits
+
+#[derive(Template)]
+#[template(path = "credits.html")]
+struct CreditsTemplate;
+
+async fn get_credits() -> impl IntoResponse {
+    return Html(CreditsTemplate.render().unwrap()).into_response();
 }
 
 // Route /u

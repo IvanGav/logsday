@@ -147,3 +147,5 @@ CREATE TABLE log_comments (
 - Rework the navbar
 - Compress videos with FFmpeg
 - Add miscellaneous pages
+- Fix Bugs:
+  - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

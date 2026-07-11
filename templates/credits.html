@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Credits</h2>
+    <div>
+        <p>Hey there! This website was made by <a href="/u/momong">momong</a>.</p>
+        <p>Source code can be found on <a href="https://github.com/IvanGav/logsday">github</a>.</p>
+        <h3>Some technical details you may want to know</h3>
+        <ul>
+            <li>All account information is stored in a database, in plaintext, with the exception of password, which is hashed using <a href="https://crates.io/crates/argon2">argon2</a>.</li>
+            <li>All uploaded videos are compressed using FFmpeg, so they may lose some quality.</li>
+            <li>The only cookie that's used is a session cookie that gets set on login.</li>
+        </ul>
+    </div>
+{% endblock %}
