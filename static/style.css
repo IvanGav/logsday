@@ -20,6 +20,10 @@ body {
     font-family: 'JetBrains Mono';
     font-size: 1rem;
 }
+input, textarea, button, select {
+    font-family: inherit;
+    font-size: inherit;
+}
 /* all links should be styled like this, unless explicitly styled differently (example: navbar) */
 a {
     text-decoration: none;

@@ -19,13 +19,7 @@
     <!-- <link rel="icon" type="image/x-icon" href="/static/favicon.ico"> -->
 </head>
 <body>
-    <nav class="navbar">
-        <a class="navitem" href="/">Home</a>
-        <a class="navitem" href="/mdguide">.md Guide</a>
-        <a class="navitem" href="/credits">Credits</a>
-        <span class="max-fill"></span>
-        <span hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML" hx-on::after:swap="initCountdown()"></span>
-    </nav>
+    <nav class="navbar" hx-get="/bits/nav-user" hx-trigger="load" id="nav-user" hx-swap="innerHTML" hx-on::after:swap="initCountdown()"></nav>
     <main>
         {% block content %}{% endblock %}
     </main>

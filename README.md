@@ -144,7 +144,6 @@ CREATE TABLE log_comments (
 - Make discover page
 - Add "report" button
 - Refactor the uri paths to be better
-- Rework the navbar
 - Compress videos with FFmpeg
 - Add miscellaneous pages
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)

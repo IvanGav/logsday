@@ -1,3 +1,8 @@
+<a class="navitem" href="/">Home</a>
+<a class="navitem" href="/u/{{ user.username }}">Projects</a>
+<a class="navitem" href="/mdguide">.md Guide</a>
+<a class="navitem" href="/credits">Credits</a>
+<span class="max-fill"></span>
 {% if self::week::is_logsday(*user.week_len, *user.logsday_weekday) %}
     <span style="margin-right:1rem">Logsday ends: <span id="countdown" time-duration="{{ self::week::time_left_today() }}"></span></span>
     {% if let Some((project_slug, log_num)) = edit_log_info %}
@@ -6,7 +11,5 @@
 {% else %}
     <span style="margin-right:1rem">Next Logsday: <span id="countdown" time-duration="{{ self::week::time_until_next_logsday(*user.week_len, *user.logsday_weekday) }}"></span></span>
 {% endif %}
-<a class="navitem" href="/u/{{ user.username }}">Projects</a>
 <a class="navitem" href="/account">Account</a>
-<!-- <a class="navitem" href="/logout">Log Out</a> -->
- <a class="navitem" hx-trigger="click" hx-post="/logout">Log Out</a>
+<a class="navitem" hx-trigger="click" hx-post="/logout">Log Out</a>
