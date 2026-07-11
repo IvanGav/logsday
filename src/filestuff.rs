@@ -17,7 +17,7 @@ pub fn media_type(filename: &str) -> MediaType {
     let split = split.unwrap();
     if split.0 == "" { return MediaType::Unsupported; } // no name -> `.ext` is the name
     match split.1.to_lowercase().as_str() {
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" /* | "svg" */ => MediaType::Image,
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "ico" /* | "svg" */ => MediaType::Image,
         "mp4" | "mpeg" | "webm" | "ogv" | "mov" => MediaType::Video,
         "mp3" | "wav" | "oga" | "weba" => MediaType::Audio,
         _ => MediaType::Unsupported,
@@ -29,7 +29,7 @@ pub fn media_type(filename: &str) -> MediaType {
 pub fn mime_media_type(mime_type: &str) -> MediaType {
     let mime_type = mime_type.split_once(';').unwrap_or((mime_type, "")).0; // get rid of parameters: `type/subtype;parameter=value`
     match mime_type.to_lowercase().as_str() {
-        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/svg+xml" => MediaType::Image,
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/x-icon" | "image/svg+xml" => MediaType::Image,
         "video/mp4" | "video/mpeg" | "video/webm" | "video/ogg" | "video/quicktime" => MediaType::Video,
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/webm" => MediaType::Audio,
         u => { println!("{u}"); MediaType::Unsupported },
