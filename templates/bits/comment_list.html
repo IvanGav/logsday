@@ -1,0 +1,8 @@
+{% for comment in comments %}
+<div class="comment flex-col">
+    <span><a href="/u/{{ comment.username }}">{{ comment.displayname }}</a> (on <span unix-utc="{{ comment.created_on }}" hx-on:load="renderCreatedOn(this)"></span>)</span>
+    <span>{{ comment.text }}</span>
+</div>
+{% else %}
+<span>So empty here... Be the first logger to write something!</span>
+{% endfor %}

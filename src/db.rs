@@ -1,4 +1,4 @@
-use crate::{AppState, LogEntry, Project, User, slug, week};
+use crate::{AppState, Comment, CommentEntry, LogEntry, Project, User, slug, week};
 
 pub async fn create_log(state: &AppState, project_id: i64, title: &str, number: i64) -> Result<i64, sqlx::Error> {
     let result = sqlx::query(
@@ -40,6 +40,19 @@ pub async fn create_user(state: &AppState, username: &str, displayname: &str, pa
         .bind(logsday_weekday)
         .bind(week::today())
         .bind(week::today())
+        .execute(&state.db)
+        .await?;
+    return Ok(result.last_insert_rowid());
+}
+
+pub async fn create_comment_for_log(state: &AppState, log_uid: i64, user_uid: i64, text: &str) -> Result<i64, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO log_comments (log_uid, user_uid, text, created_on) VALUES (?, ?, ?, ?)",
+    )
+        .bind(log_uid)
+        .bind(user_uid)
+        .bind(text) // plaintext password go brrrr
+        .bind(week::now())
         .execute(&state.db)
         .await?;
     return Ok(result.last_insert_rowid());
@@ -148,7 +161,7 @@ pub async fn get_project_by_slug(state: &AppState, user_id: i64, project_slug: &
 // Getters for `logs` table
 
 pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry> {
-    let logs = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ?;")
+    let logs = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? ORDER BY created_on DESC;")
         .bind(&project_id)
         .fetch_all(&state.db)
         .await;
@@ -220,4 +233,38 @@ pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(
         .execute(&state.db)
         .await?;
     return Ok(());
+}
+
+pub async fn get_raw_comments_for_log(state: &AppState, log_uid: i64) -> Vec<CommentEntry> {
+    let comments = sqlx::query_as::<_,CommentEntry>("SELECT * FROM comments WHERE log_uid = ?;")
+        .bind(&log_uid)
+        .fetch_all(&state.db)
+        .await;
+    if let Err(e) = &comments {
+        println!("DB ERROR: {}", e);
+    }
+    return comments.unwrap_or(vec![]);
+}
+
+pub async fn get_comments_for_log(state: &AppState, log_uid: i64,) -> Vec<Comment> {
+    let comments = sqlx::query_as::<_, Comment>(
+        r#"
+        SELECT 
+            u.displayname,
+            u.username,
+            c.text,
+            c.created_on
+        FROM log_comments c
+        JOIN users u ON c.user_uid = u.uid
+        WHERE c.log_uid = ?
+        ORDER BY c.created_on DESC
+        "#
+    )
+    .bind(log_uid)
+    .fetch_all(&state.db)
+    .await;
+    if let Err(e) = &comments {
+        println!("DB ERROR: {}", e);
+    }
+    return comments.unwrap_or(vec![]);
 }

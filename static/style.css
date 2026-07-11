@@ -317,3 +317,10 @@ form hr {
     padding-left: 0px;
     border-left-color: transparent; /* Smoothly hide the border line */
 }
+
+/* Comments */
+.comment {
+    padding: 10px;
+    margin-bottom: 15px;
+    background-color: var(--primary-bg);
+}

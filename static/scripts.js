@@ -101,10 +101,10 @@ function replaceParticle(weeklen) {
 // newlog
 
 function checkFileSize(input) {
-    const limit = 10 * 1024 * 1024;
+    const limit = 100 * 1024 * 1024;
     if (input.files[0].size > limit) {
-        alert("This file is too big! Please choose an image under 10 MB.");
-        input.value = ""; // Clear the input
+        alert("This file is too big! Please choose an image under 100MB.");
+        input.value = "";
     }
 }
 function normalizeExtension(filename) {
@@ -149,7 +149,9 @@ function getDeletePath(filenameToDelete) {
 }
 function getUploadedFilesNewListItemDesc(filename, filepath, filesize, error = null) {
     let sizestr;
-    if(filesize > (1024*1024)) {
+    if(filesize > (1024*1024*1024)) {
+        sizestr = (filesize/(1024*1024*1024)).toFixed(2) + "GB";
+    } else if(filesize > (1024*1024)) {
         sizestr = (filesize/(1024*1024)).toFixed(2) + "MB";
     } else if(filesize > 1024) {
         sizestr = (filesize/1024).toFixed(2) + "KB";
@@ -295,22 +297,13 @@ function updatePreview(markdownInput) {
 function enableTabCapture(textarea) {
     textarea.addEventListener('keydown', function(e) {
         if (e.key === 'Tab') {
-            e.preventDefault(); // Stop focus from shifting
-            
+            e.preventDefault();
             const start = this.selectionStart;
             const end = this.selectionEnd;
             const value = this.value;
-            
-            // Define your tab character (4 spaces is usually best for Markdown layout consistency)
             const tabChar = "    "; 
-            
-            // Set textarea value to: text before caret + tab + text after caret
             this.value = value.substring(0, start) + tabChar + value.substring(end);
-            
-            // Put caret back in the correct position (right after the inserted tab)
             this.selectionStart = this.selectionEnd = start + tabChar.length;
-            
-            // Trigger your preview update manually since 'input' event won't fire natively on programmatic updates
             updatePreview(this);
         }
     });

@@ -13,7 +13,7 @@ use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::{filestuff::MediaType, newlog::{NewlogResult, error_json}};
+use crate::{db::get_comments_for_log, filestuff::MediaType, newlog::{NewlogResult, error_json}};
 
 mod db;
 mod slug;
@@ -88,6 +88,7 @@ async fn main() {
         .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
         .route("/del/media/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
         .route("/del/media/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
+        .route("/comment/{username}/{project_slug}/{log_number}", get(get_log_comments).post(post_log_comments))
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
@@ -97,7 +98,7 @@ async fn main() {
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
         .layer(session_layer)
-        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // do not allow uploads of over 100MB; should also be enforced on client side
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024)) // do not allow uploads of over 1GB; should also be enforced on client side
         .with_state(state);
 
     let app = NormalizePath::trim_trailing_slash(app.into_service());
@@ -116,11 +117,6 @@ async fn main() {
     .unwrap();
     sched.add(cleanup_job).await.unwrap();
     sched.start().await.unwrap();
-    
-    println!("STARTED STARTUP CLEANUP");
-    if let Err(e) = filestuff::cleanup_all_log_directories() {
-        println!("FAILED STARTUP CLEANUP - {e}");
-    }
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3009").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -175,6 +171,23 @@ impl LogEntry {
     pub fn can_edit(&self) -> bool {
         return week::days_since(self.created_on) == 0; // can edit if uploaded today
     }
+}
+
+#[derive(Debug, sqlx::FromRow, Default)]
+struct CommentEntry {
+    uid: i64, // unique
+    log_uid: i64,
+    user_uid: i64,
+    text: String,
+    created_on: week::UnixTime,
+}
+
+#[derive(Debug, sqlx::FromRow, Default)]
+struct Comment {
+    displayname: String,
+    username: String,
+    text: String,
+    created_on: week::UnixTime,
 }
 
 struct AuthdUser(User);
@@ -435,6 +448,7 @@ struct ViewLogTemplate {
     project: Project,
     log: LogEntry,
     owner: bool,
+    authd: bool,
 }
 
 async fn get_view_log(session: Session, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>) -> impl IntoResponse {
@@ -443,7 +457,8 @@ async fn get_view_log(session: Session, State(state): State<AppState>, Path((use
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, msg_html("Project does not exist".into()));
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, msg_html("Log does not exist".into()));
     let owner = authd_uid == user.uid;
-    return Html(ViewLogTemplate{user, project, log, owner}.render().unwrap()).into_response();
+    let authd = authd_uid != 0;
+    return Html(ViewLogTemplate{user, project, log, owner, authd}.render().unwrap()).into_response();
 }
 
 // Route /new/project
@@ -509,13 +524,15 @@ struct UploadLogTemplate {
     md: String,
     upload_path: String,
     files_json_list: String,
+    exists: bool,
+    log_num: i64,
 }
 
 impl UploadLogTemplate {
     fn new(user: User, project: Project, log_num: i64) -> UploadLogTemplate {
         let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_num)).unwrap_or("[]".into());
         let upload_path = format!("/new/log/{}", &project.slug);
-        UploadLogTemplate { user, project, title: "".into(), md: "".into(), upload_path, files_json_list }
+        UploadLogTemplate { user, project, title: "".into(), md: "".into(), upload_path, files_json_list, exists: false, log_num }
     }
 }
 
@@ -544,7 +561,7 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
             let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
             let html_render = filestuff::render_markdown_to_html(&form.content);
             let linked_size = get_or!(filestuff::count_log_directory_size(&log_path, &html_render), "Something went wrong when looking at embedded files", err);
-            if linked_size > 100 * 1024 * 1024 { return "Your log must be smaller than 100MB".into_response(); }
+            if linked_size > 1024 * 1024 * 1024 { return "Your log must be smaller than 1GB".into_response(); }
             match db::create_log(&state, project.uid, &form.title, log_number).await {
                 Ok(_) => {
                     if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return "Couldn't create log dir".into_response(); }
@@ -567,17 +584,17 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
 
 // Route /edit/log/{project_slug}/{log_number}
 
-async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, i64)>) -> impl IntoResponse {
+async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_num)): Path<(String, i64)>) -> impl IntoResponse {
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
-    let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, "Log does not exist");
-    let md = get_or!(fs::read_to_string(format!("uploads/users/{}/{}/{}/index.md", &user.username, &project_slug, log_number)), "Cannot find log md file", err);
+    let log = get_or!(db::get_log_by_number(&state, project.uid, log_num).await, "Log does not exist");
+    let md = get_or!(fs::read_to_string(format!("uploads/users/{}/{}/{}/index.md", &user.username, &project_slug, log_num)), "Cannot find log md file", err);
     // Can only edit today's logs
     if !user.admin && !log.can_edit() {
         return msg_html("You can only edit logs you created today.".into()).into_response();
     }
-    let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_number)).unwrap_or("[]".into());
-    let upload_path = format!("/edit/log/{}/{}", &project.slug, log_number);
-    return Html(UploadLogTemplate{user, project, title: log.title, md, upload_path, files_json_list}.render().unwrap()).into_response();
+    let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_num)).unwrap_or("[]".into());
+    let upload_path = format!("/edit/log/{}/{}", &project.slug, log_num);
+    return Html(UploadLogTemplate{user, project, title: log.title, md, upload_path, files_json_list, exists: true, log_num}.render().unwrap()).into_response();
 }
 
 async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
@@ -589,7 +606,7 @@ async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
     let html_render = filestuff::render_markdown_to_html(&form.content);
     let linked_size = get_or!(filestuff::count_log_directory_size(&log_path, &html_render), "Something went wrong when looking at embedded files", err);
-    if linked_size > 100 * 1024 * 1024 { return "Your log must be smaller than 100MB".into_response(); }
+    if linked_size > 1024 * 1024 * 1024 { return "Your log must be smaller than 1GB".into_response(); }
     if let Err(e) = db::update_log(&state, log.uid, &form.title).await { println!("{}", e); return "Database error".into_response(); }
     // the log must already exist; no need to re-create the log path
     if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
@@ -631,7 +648,7 @@ async fn post_del_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
 
 #[derive(TryFromMultipart)]
 struct LogMediaUploadRequest {
-    #[form_data(field_name = "file", limit = "100MB")]
+    #[form_data(field_name = "file", limit = "1GB")]
     file: FieldData<Bytes>,
 }
 
@@ -665,7 +682,7 @@ async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &Type
     if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't create log dir")).into_response(); }
     let current_size = filestuff::get_directory_size_bytes(&log_path).await.unwrap_or(0);
     let incoming_size = data.file.contents.len() as u64;
-    if current_size + incoming_size > 1024 * 1024 * 1024 { return (StatusCode::INSUFFICIENT_STORAGE, error_json("Cannot upload more than 1GB per log")).into_response(); }
+    if current_size + incoming_size > 5 * 1024 * 1024 * 1024 { return (StatusCode::INSUFFICIENT_STORAGE, error_json("Cannot upload more than 5GB per log")).into_response(); }
     if let Err(e) = fs::write(log_file_path, &data.file.contents) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't write file")).into_response(); }
     return newlog::file_response(&file_name, incoming_size, &log_file_web_path).into_response();
 }
@@ -744,5 +761,41 @@ async fn get_nav_user_bit(session: Session, State(state): State<AppState>) -> im
         None => {
             return Html(LoginBitTemplate.render().unwrap()).into_response();
         }
+    }
+}
+
+// Route /comment/{username}/{project_slug}/{log_number}
+
+#[derive(Template)]
+#[template(path = "bits/comment_list.html")]
+struct CommentListTemplate {
+    comments: Vec<Comment>,
+}
+
+async fn get_log_comments(State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>) -> impl IntoResponse {
+    let owner = get_or!(db::get_user_by_username(&state, &username).await, "User does not exist");
+    let log = get_or!(db::get_log_uuid_pslug_lslug(&state, owner.uid, &project_slug, log_number).await, "Log does not exist");
+    let comments = db::get_comments_for_log(&state, log.uid).await;
+    return Html(CommentListTemplate{comments}.render().unwrap()).into_response();
+}
+
+#[derive(Deserialize, Debug)]
+struct PostCommentSubmission {
+    text: String,
+}
+
+async fn post_log_comments(
+    AuthdUser(user): AuthdUser, 
+    State(state): State<AppState>, 
+    Path((username, project_slug, log_number)): Path<(String, String, i64)>,
+    Form(form): Form<PostCommentSubmission>,
+) -> impl IntoResponse {
+    let owner = get_or!(db::get_user_by_username(&state, &username).await, "User does not exist");
+    let log = get_or!(db::get_log_uuid_pslug_lslug(&state, owner.uid, &project_slug, log_number).await, "Log does not exist");
+    if form.text.len() > 1024*1024 { return "Why is your comment a MEGABYTE long?".into_response(); }
+    let res = db::create_comment_for_log(&state, log.uid, user.uid, &form.text).await;
+    match res {
+        Ok(_) => return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response(),
+        Err(e) => { println!("DB ERROR WHEN CREATING A COMMENT: {e}"); return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create comment").into_response() },
     }
 }

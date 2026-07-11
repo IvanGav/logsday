@@ -28,13 +28,15 @@ You will be able to upload a devlog exactly once a week.
 - `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
 - `/new/media/{project_slug}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; new log
 - `/new/media/{project_slug}/{log_number}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; specified log
+- `/edit/log/{project_slug}/{log_number}` - give a view for editing an existing log (only today's allowed)
 - `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
 - `/del/log/{project_slug}/{log_number}` - delete the log for the specified project; redirect to `/login` when not logged in
 - `/del/media/{project_slug}/new/{file_name}` - delete the given file from the newlog
 - `/del/media/{project_slug}/{log_number}/{file_name}` - delete the given file from the specified log
+- `/comment/{username}/{project_slug}/{log_number}` - get all comments of a log on GET; upload a comment on POST
 - `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
 - `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
-- `/bits/navuser` => `templates/bits/login.html`/`nav_user.html` - get the navbar login/signup or the logout/time until logsday; bits uris are htmx helpers
+- `/bits/nav-user` => `templates/bits/login.html`/`nav_user.html` - get the navbar login/signup or the logout/time until logsday; bits uris are htmx helpers
 
 ## Tech Stack
 
@@ -111,4 +113,35 @@ CREATE TABLE logs (
     UNIQUE(project_uid, number)
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
+
+CREATE TABLE log_comments (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_uid INTEGER NOT NULL,
+    user_uid INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    created_on INTEGER NOT NULL, -- unix timestamp
+
+    FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
+    FOREIGN KEY (user_uid) REFERENCES users(uid)
+);
 ```
+
+## TODO list (no particular order)
+- Make `profile` page (choose logsday day once a week, change displayname)
+- Let edit project info (title, thumbnail)
+- Improve comments
+	- (maybe) Let delete comments
+	- (maybe) Let edit comments
+	- Let reply to comments
+	- Add comments to user/project pages
+- Let like/dislike log/project/user
+- Add updates (`{last_log#}.{update#}`)
+- Highlight code blocks in Rust
+- Add tags to logs/projects/users
+- Search logs/projects/users by name, tags
+- Follow users/projects
+- Make/follow groups
+- Make discover page
+- Add "report" button
+- Refactor the uri paths to be better
+- Rework the navbar

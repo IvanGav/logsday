@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>New Log for <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a></h2>
+    {% if exists %}
+        <h2>Edit <a href="/u/{{ user.username }}/{{ project.slug }}/{{ log_num }}">Log {{ log_num }}</a> of <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a></h2>
+    {% else %}
+        <h2>Create Log {{ log_num }} for <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a></h2>
+    {% endif %}
     <p id="err"></p>
     <form id="log-form" hx-post="{{ upload_path }}" hx-target="#err" class="editor-layout-wrapper">
         <div class="main-editor-area">

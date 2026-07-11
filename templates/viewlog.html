@@ -7,9 +7,18 @@
     </div>
     <hr>
     <div hx-trigger="load" hx-get="/uploads/{{ user.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content" hx-on::after:swap="hljs.highlightAll()"></div>
-    <hr>
     {% if owner %}
+        <hr>
         <button class="link" hx-post="/del/log/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
         <p id="del-err"></p>
     {% endif %}
+    <hr>
+    {% if authd %}
+    <form hx-post="/comment/{{ user.username }}/{{ project.slug }}/{{ log.number }}" hx-target="#err" hx-on::after:swap="this.reset()">
+        <input type="text" name="text" required>
+        <button type="submit">Post Comment</button>
+    </form>
+    <p id="err"></p>
+    {% endif %}
+    <span hx-get="/comment/{{ user.username }}/{{ project.slug }}/{{ log.number }}" hx-trigger="load, refreshComments from:body" hx-swap="innerHTML"></span>
 {% endblock %}

@@ -1,6 +1,7 @@
 use std::{fs, io::Cursor, path::Path, collections::HashSet};
 use image::ImageFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
+use tokio::process::Command;
 
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
@@ -214,4 +215,25 @@ pub fn cleanup_all_log_directories() -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn compress_video(input_path: &str, output_path: &str) -> std::io::Result<()> {
+    let status = Command::new("ffmpeg")
+        .args([
+            "-i", input_path,
+            "-vcodec", "libx264", // libsvtav1 for av1
+            "-crf", "23", // 51 = bad; 27 for av1 is good
+            "-acodec", "aac",
+            "-b:a", "128k", // Audio bitrate
+            "-y", // Overwrite output file if it exists
+            output_path,
+        ])
+        .status()
+        .await?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(std::io::ErrorKind::Other, "FFmpeg execution failed"))
+    }
 }
