@@ -132,7 +132,6 @@ CREATE TABLE log_comments (
 ```
 
 ## TODO list (no particular order)
-- Make `profile` page (choose logsday day once a week, change displayname)
 - Let edit project info (title, thumbnail)
 - Improve comments
 	- (maybe) Let delete comments
