@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>Account</h2>
+    <div>
+        <div style="gap:1rem;" class="flex-row">
+            <img src="/uploads/{{ user.username }}/pfp.webp" alt="user profile picture" class="view-project-thumb">
+            <div>
+                <h2>{{ user.displayname }} ({{ user.username }})</h2>
+                <p>Joined on: <span unix-utc="{{ user.created_on }}" hx-on:load="renderCreatedOn(this)"></span></p>
+                {% if user.week_len == 7 %}
+                    <p>Logsday on {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
+                {% else %}
+                    <p>Logsday between {{ self::get_weekday_name(user.logsday_weekday-1) }} and {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <hr>
+    <p id="msg"></p>
+    <form hx-post="/account/change-displayname" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
+        <label>New Displayname <input type="text" name="displayname" required></label>
+        <button type="submit">Change Displayname</button>
+    </form>
+    <br>
+    <form hx-post="/account/change-pfp" hx-encoding="multipart/form-data" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
+        <label>New Profile Picture <input type="file" name="pfp" accept="image/*"></label>
+        <button type="submit">Change Profile Picture</button>
+    </form>
+    <br>
+    <p id="err"></p>
+    <p>To change username, your logsday or for any other questions, feel free to write an email (email address should be somewhere in <a href="/credits">credits</a>)</p>
+    <br>
+    <button class="link" hx-post="/del/user/{{ user.username }}" style="color:red" hx-target="#err" hx-confirm="Are you sure?">Delete Account</button>
+{% endblock %}

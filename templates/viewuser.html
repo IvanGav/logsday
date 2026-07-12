@@ -2,13 +2,18 @@
 
 {% block content %}
     <div>
-        <h2>{{ user.displayname }} ({{ user.username }})</h2>
-        <p>Joined on: <span unix-utc="{{ user.created_on }}" hx-on:load="renderCreatedOn(this)"></span></p>
-        {% if user.week_len == 7 %}
-            <p>Logsday on {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
-        {% else %}
-            <p>Logsday between {{ self::get_weekday_name(user.logsday_weekday-1) }} and {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
-        {% endif %}
+        <div style="gap:1rem;" class="flex-row">
+            <img src="/uploads/{{ user.username }}/pfp.webp" alt="user profile picture" class="view-project-thumb">
+            <div>
+                <h2>{{ user.displayname }} ({{ user.username }})</h2>
+                <p>Joined on: <span unix-utc="{{ user.created_on }}" hx-on:load="renderCreatedOn(this)"></span></p>
+                {% if user.week_len == 7 %}
+                    <p>Logsday on {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
+                {% else %}
+                    <p>Logsday between {{ self::get_weekday_name(user.logsday_weekday-1) }} and {{ self::get_weekday_name(*user.logsday_weekday) }}</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
     {% if owner %} <a href="/new/project">New Project</a> {% endif %}
     <hr>

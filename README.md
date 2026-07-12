@@ -15,11 +15,15 @@ You will be able to upload a devlog exactly once a week.
 
 ## Paths
 
-- `/` => `templates/landing.html`- home, undecided
+- `/` => `templates/landing.html`
 - `/signup` => `templates/signup.html`
 - `/login` => `templates/login.html`
-- `/logout` - logout and redirect to `/`
+- `/logout`
 - `/mdguide` => `templates/mdguide.html`
+- `/credits` => `templates/credits.html`
+- `/account` => `templates/account.html` - update displayname and profile picture
+- `/account/change-displayname` - POST to update displayname
+- `/account/change-pfp` - POST to update profile picture
 - `/u` => `templates/viewuser.html` - your profile; redirect to `/login` when not logged in
 - `/u/{username}` => `templates/viewuser.html` - user's profile + list of their projects; when your page, give extra options
 - `/u/{username}/{project_slug}` => `templates/viewproject.html` - project page + list of logs; when your project, give extra options
@@ -54,6 +58,7 @@ You will be able to upload a devlog exactly once a week.
   - `sqlx` for interacting with sqlite db
   - `infer` for scanning magic bytes of files
   - `image` for converting image formats
+  - `webp-animation` for specifically converting gif to webp (wrapper around `libwebp`)
   - `scraper` for looking through html files for linked/embedded files
   - `tokio_cron_scheduler` for cron jobs from Rust, for now
   - `tower_sessions` for easy sessions
@@ -147,5 +152,6 @@ CREATE TABLE log_comments (
 - Compress videos with FFmpeg
 - Add miscellaneous pages
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
+- Inbox
 - Fix Bugs:
   - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

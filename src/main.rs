@@ -85,11 +85,15 @@ async fn main() {
         .route("/edit/log/{project_slug}/{log_number}", get(get_edit_log).post(post_edit_log))
         .route("/new/media/{project_slug}", post(post_new_log_media_upload))
         .route("/new/media/{project_slug}/{log_number}", post(post_log_media_upload))
+        .route("/del/user/{username}", post(post_del_user))
         .route("/del/project/{project_slug}", post(post_del_project))
         .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
         .route("/del/media/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
         .route("/del/media/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
         .route("/comment/{username}/{project_slug}/{log_number}", get(get_log_comments).post(post_log_comments))
+        .route("/account", get(get_account))
+        .route("/account/change-displayname", post(post_change_displayname))
+        .route("/account/change-pfp", post(post_change_pfp))
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
@@ -315,6 +319,10 @@ async fn post_signup(
     match result {
         Ok(_) => {
             if let Ok(_) = fs::create_dir_all(format!("uploads/users/{}", username)) {
+                let pfp_path = format!("uploads/users/{}/pfp.webp", &username);
+                let default_pfp = get_or!(fs::read("static/favicon.ico"), (StatusCode::INTERNAL_SERVER_ERROR, "Could not find favicon"), err);
+                let webp_img = get_or!(filestuff::convert_to_webp(&default_pfp), (StatusCode::INTERNAL_SERVER_ERROR, "Could not convert to webp"));
+                if let Err(_) = fs::write(pfp_path, &webp_img) { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not write file").into_response(); }
                 let u = db::get_user_by_username(&state, &username).await;
                 if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
                 let uid = u.unwrap().uid;
@@ -513,7 +521,7 @@ async fn post_new_project(State(state): State<AppState>, AuthdUser(user): AuthdU
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
 
     let webp_img = filestuff::convert_to_webp(thumbnail);
-    if let Err(e) = webp_img { return e.to_string().into_response(); }
+    if let None = webp_img { return "Could not convert to webp".into_response(); }
     let webp_img = webp_img.unwrap();
 
     if let Ok(_) = db::create_project(&state, user.uid, &data.title, &pslug, &data.description).await {
@@ -626,6 +634,21 @@ async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>
     if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
     if let Err(e) = filestuff::cleanup_log_directory(&log_path) { println!("{}", e); }
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
+}
+
+// Route /del/user/{username}
+
+async fn post_del_user(session: Session, AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
+    if user.username != username { return "You can only delete account you're logged in to.".into_response(); }
+    if !db::delete_user(&state, user.uid).await {
+        return "Could not delete user".into_response();
+    }
+    if let Err(e) = fs::remove_dir_all(format!("uploads/users/{}", user.username)) {
+        println!("{}", e);
+        return "Could not clean up user directory after deletion".into_response();
+    }
+    let _ = session.remove::<i64>("uid").await;
+    return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
 }
 
 // Route /del/project/{project_slug}
@@ -799,7 +822,7 @@ struct PostCommentSubmission {
 
 async fn post_log_comments(
     AuthdUser(user): AuthdUser, 
-    State(state): State<AppState>, 
+    State(state): State<AppState>,
     Path((username, project_slug, log_number)): Path<(String, String, i64)>,
     Form(form): Form<PostCommentSubmission>,
 ) -> impl IntoResponse {
@@ -811,4 +834,63 @@ async fn post_log_comments(
         Ok(_) => return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response(),
         Err(e) => { println!("DB ERROR WHEN CREATING A COMMENT: {e}"); return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create comment").into_response() },
     }
+}
+
+// Route /account
+
+#[derive(Template)]
+#[template(path = "account.html")]
+struct AccountTemplate {
+    user: User
+}
+
+async fn get_account(AuthdUser(user): AuthdUser) -> impl IntoResponse {
+    return Html(AccountTemplate{user}.render().unwrap()).into_response();
+}
+
+#[derive(Deserialize, Debug)]
+struct ChangeDisplaynameSubmission {
+    displayname: String,
+}
+
+async fn post_change_displayname(AuthdUser(user): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
+    if !db::update_user_displayname(&state, user.uid, &form.displayname).await {
+        return "Database failure".into_response();
+    }
+    return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
+}
+
+#[derive(TryFromMultipart)]
+struct UpdatePfpRequest {
+    #[form_data(field_name = "pfp", limit = "100MB")]
+    pfp: FieldData<Bytes>,
+}
+
+async fn post_change_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<UpdatePfpRequest>) -> impl IntoResponse {
+    if data.pfp.contents.len() == 0 { return "You did not upload a file.".into_response(); }
+    let content_type = data.pfp.metadata.content_type.as_ref().unwrap();
+    if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported profile picture file format".into_response(); }
+    let user_path = format!("uploads/users/{}", &user.username);
+    let pfp_path = format!("{}/{}", &user_path, "pfp.webp");
+
+    let webp_img = time(|| filestuff::convert_to_webp(&data.pfp.contents)).unwrap();
+    // let webp_img = get_or!(filestuff::convert_to_webp(&data.pfp.contents), "Could not convert to webp");
+    if let Ok(_) = fs::create_dir_all(user_path) {
+        if let Ok(_) = fs::write(pfp_path, &webp_img) {
+            return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
+        } else {
+            return "Could not write file".into_response();
+        }
+    } else {
+        return "Could not create user directory".into_response();
+    }
+}
+
+fn time<F: Fn() -> T, T>(f: F) -> T {
+  let start = std::time::SystemTime::now();
+  let result = f();
+  let end = std::time::SystemTime::now();
+  let duration = end.duration_since(start).unwrap();
+  println!("it took {} seconds", duration.as_secs());
+  result
 }

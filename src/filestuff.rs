@@ -1,7 +1,8 @@
 use std::{fs, io::Cursor, path::Path, collections::HashSet};
-use image::ImageFormat;
+use image::{AnimationDecoder, DynamicImage, Frame, ImageFormat, ImageResult, codecs::gif::GifDecoder, imageops::FilterType};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use tokio::process::Command;
+use webp_animation::{WebPData, prelude::Encoder};
 
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
@@ -56,12 +57,37 @@ pub fn normalize_extension(filename: &str) -> String {
     return split.0.to_string() + "." + &ext;
 }
 
-pub fn convert_to_webp(raw_bytes: &[u8]) -> Result<Vec<u8>, image::ImageError> {
-    let img = image::load_from_memory(raw_bytes)?;
-    let img = img.thumbnail(400, 400);
-    let mut webp_buffer = Vec::new();
-    img.write_to(&mut Cursor::new(&mut webp_buffer), ImageFormat::WebP)?;
-    return Ok(webp_buffer);
+pub fn convert_to_webp(raw_bytes: &[u8]) -> Option<Vec<u8>> {
+    let format = image::guess_format(raw_bytes).ok()?;
+    if format == ImageFormat::WebP {
+        return Some(raw_bytes.to_owned());
+    } else if format == ImageFormat::Gif {
+        // Written by AI (and edited by me, but not significantly; I still don't know if there's an easier way to do this)
+        let decoder = GifDecoder::new(Cursor::new(raw_bytes)).ok()?;
+        let frames = decoder.into_frames().collect::<Result<Vec<_>, _>>().ok()?;
+        if frames.is_empty() { return None; }
+        let first_frame_img = DynamicImage::ImageRgba8(frames[0].buffer().clone());
+        let thumb = first_frame_img.thumbnail(400, 400);
+        let mut encoder = Encoder::new((thumb.width(), thumb.height())).ok()?;
+        let mut current_timestamp_ms = 0;
+        for frame in frames {
+            let (delay_ms_numer, delay_ms_denom) = frame.delay().numer_denom_ms();
+            let delay_ms = delay_ms_numer/delay_ms_denom;
+            let dynamic_frame = DynamicImage::ImageRgba8(frame.into_buffer());
+            // let resized_frame = dynamic_frame.resize(400, 400, FilterType::Lanczos3).to_rgba8();
+            let resized_frame = dynamic_frame.thumbnail(400, 400).to_rgba8();
+            encoder.add_frame(&resized_frame, current_timestamp_ms).ok()?;
+            current_timestamp_ms += delay_ms as i32;
+        }
+        let webp_data = encoder.finalize(current_timestamp_ms).ok()?;
+        return Some(webp_data.to_vec());
+    } else {
+        let img = image::load_from_memory(raw_bytes).ok()?;
+        let img = img.thumbnail(400, 400);
+        let mut webp_buffer = Vec::new();
+        img.write_to(&mut Cursor::new(&mut webp_buffer), ImageFormat::WebP).ok()?;
+        return Some(webp_buffer);
+    }
 }
 
 // disallow embedding html

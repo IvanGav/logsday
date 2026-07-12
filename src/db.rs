@@ -61,6 +61,19 @@ pub async fn create_comment_for_log(state: &AppState, log_uid: i64, user_uid: i6
 // Deleters
 
 // return true on success
+pub async fn delete_user(state: &AppState, user_uid: i64) -> bool {
+    let result = sqlx::query("DELETE FROM users WHERE uid = ?;")
+        .bind(user_uid)
+        .execute(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+        return false;
+    }
+    return true;
+}
+
+// return true on success
 pub async fn delete_project(state: &AppState, project_uid: i64) -> bool {
     let result = sqlx::query("DELETE FROM projects WHERE uid = ?;")
         .bind(project_uid)
@@ -77,6 +90,21 @@ pub async fn delete_project(state: &AppState, project_uid: i64) -> bool {
 pub async fn delete_log(state: &AppState, log_uid: i64) -> bool {
     let result = sqlx::query("DELETE FROM logs WHERE uid = ?;")
         .bind(log_uid)
+        .execute(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+        return false;
+    }
+    return true;
+}
+
+// Updaters
+
+pub async fn update_user_displayname(state: &AppState, user_uid: i64, new_displayname: &str) -> bool {
+    let result = sqlx::query("UPDATE users SET displayname = ? WHERE uid = ?;")
+        .bind(new_displayname)
+        .bind(user_uid)
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
