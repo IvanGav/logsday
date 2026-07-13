@@ -4,7 +4,8 @@ use axum::{
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
-use std::{collections::HashMap, fs};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use std::{collections::HashMap, fs, net::SocketAddr};
 use tower_http::services::ServeDir;
 use sqlx::sqlite::SqlitePool;
 use serde::Deserialize;
@@ -72,6 +73,23 @@ async fn main() {
         .with_secure(false) // set to true later when have HTTPS
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
+    // prevent same IP from spamming requests; up to 250 requests in burst allowed, refreshing 1 every second
+    let governor_config = GovernorConfigBuilder::default()
+       .per_second(1)
+       .burst_size(250)
+       .finish()
+       .expect("Could not create governor_config");
+
+    let governor_limiter = governor_config.limiter().clone();
+
+    // every minute, clean up old ips; prevents them from being stored indefinitely
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            governor_limiter.retain_recent();
+        }
+    });
+
     let (tx, mut rx) = mpsc::channel::<filestuff::CompressVideoJob>(100);
     let state = AppState { db: db_pool, tx };
 
@@ -121,12 +139,13 @@ async fn main() {
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
+        .layer(GovernorLayer::new(governor_config))
         .layer(session_layer)
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 1024)) // do not allow uploads of over 1GB; should also be enforced on client side
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024 * 1024)) // do not allow uploads of over 10GB; should also be enforced on client side
         .with_state(state.clone());
 
     let app = NormalizePath::trim_trailing_slash(app.into_service());
-    let app = app.into_make_service();
+    let app = app.into_make_service_with_connect_info::<SocketAddr>(); // let app = app.into_make_service();
 
     // set up the cleanup cron job
     let sched = JobScheduler::new().await.unwrap();
@@ -134,8 +153,7 @@ async fn main() {
         println!("STARTED CLEANUP");
         let job_state = state.clone();
         Box::pin(async move {
-            let exec_state = job_state.clone();
-            if let Err(e) = filestuff::cleanup_all_log_directories(exec_state).await {
+            if let Err(e) = filestuff::cleanup_all_log_directories(job_state).await {
                 println!("FAILED CLEANUP - {e}");
             } else {
                 println!("FINISHED CLEANUP");

@@ -20,4 +20,5 @@ tokio-cron-scheduler = "0.15.1"
 tower-http = { version = "0.6.10", features = ["fs", "normalize-path"] }
 tower-layer = "0.3.3"
 tower-sessions = "0.15.0"
+tower_governor = "0.8.0"
 webp-animation = { version = "0.10.0", features = ["image"] }
