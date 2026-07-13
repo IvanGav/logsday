@@ -11,7 +11,10 @@ You will be able to upload a devlog exactly once a week.
 - `Askama`'s templates (`#[template(path = "index.html")]`) live in `./templates` directory
   - Note that `Askama`'s templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
 - `Axum`'s Router uses `nest_service("/static", ServeDir::new("public"))` to map requests to `/static` to take from `./public` directory. That way, any requests to CSS or JS will take from there.
-- The database is `./sqlite.db`. Needs to be created manually. Before running you might need to set an env variable `DATABASE_URL="sqlite:sqlite.db"` or `DATABASE_URL="~/logsday/sqlite.db"`
+- The database is `./sqlite.db`. Needs to be created manually. Before running you might need to set an env variable `DATABASE_URL="sqlite:sqlite.db"` or `DATABASE_URL="~/logsday/sqlite.db"`. You will also have to create all tables manually (listed in `SQLite Tables` section).
+- You have to have `nice` and `ffmpeg` cmd utilities instealled.
+  - `ffmpeg -formats` - list available containers (mp4, webm, etc)
+  - `ffmpeg -codecs` - list available codecs (libx264, etc)
 
 ## Paths
 
@@ -44,8 +47,9 @@ You will be able to upload a devlog exactly once a week.
 
 ## Tech Stack
 
-- Database:
+- Server Side:
   - `SQLite`
+  - `FFmpeg`
 - Web:
   - `HTMX`
   - `marked.js` live markdown preview
@@ -127,7 +131,7 @@ CREATE TABLE log_comments (
     created_on INTEGER NOT NULL, -- unix timestamp
 
     FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
-    FOREIGN KEY (user_uid) REFERENCES users(uid)
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 ```
 
@@ -148,9 +152,8 @@ CREATE TABLE log_comments (
 - Make discover page
 - Add "report" button
 - Refactor the uri paths to be better
-- Compress videos with FFmpeg
-- Add miscellaneous pages
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
+- Create sqlite tables if they don't yet exist
 - Fix Bugs:
   - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

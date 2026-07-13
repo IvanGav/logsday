@@ -12,6 +12,7 @@ use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer, cookie::time};
 use tower_sessions::Session;
 use tower_http::normalize_path::NormalizePath;
 use tokio_cron_scheduler::{Job, JobScheduler};
+use tokio::sync::mpsc;
 
 use crate::{filestuff::MediaType, newlog::{NewlogResult, error_json}};
 
@@ -57,20 +58,38 @@ pub fn msg_html(message: String) -> Html<String> {
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
+    tx: mpsc::Sender<filestuff::CompressVideoJob>,
 }
 
 #[tokio::main]
 async fn main() {
     let db_pool = SqlitePool::connect("sqlite:sqlite.db")
         .await
-        .expect("Could not connect to database");
+        .expect("Could not connect to database. Please create `sqlite.db` database.");
 
     let session_store = MemoryStore::default(); // store user sessions to memory for now
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false) // set to true later when have HTTPS
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
-    let state = AppState { db: db_pool };
+    let (tx, mut rx) = mpsc::channel::<filestuff::CompressVideoJob>(100);
+    let state = AppState { db: db_pool, tx };
+
+    // Thread that compresses videos
+    tokio::spawn(async move {
+        while let Some(job) = rx.recv().await {
+            let metadata = match fs::metadata(&job.path) {
+                Ok(meta) => meta,
+                Err(_) => { println!("COMPRESS WARN: file was deleted {}", job.path); continue; }
+            };
+            if let Ok(modified) = metadata.modified() {
+                if modified > job.created_on { println!("COMPRESS WARN: file was updated {:?}", job.path); continue; }
+            }
+            println!("COMPRSS START: {}", job.path);
+            filestuff::compress_video(job).await;
+        }
+        println!("Shutting down compression thread");
+    });
 
     let app = Router::new()
         .route("/debug", get(get_debug))
@@ -104,7 +123,7 @@ async fn main() {
         .nest_service("/static", ServeDir::new("static"))
         .layer(session_layer)
         .layer(DefaultBodyLimit::max(1024 * 1024 * 1024)) // do not allow uploads of over 1GB; should also be enforced on client side
-        .with_state(state);
+        .with_state(state.clone());
 
     let app = NormalizePath::trim_trailing_slash(app.into_service());
     let app = app.into_make_service();
@@ -113,9 +132,13 @@ async fn main() {
     let sched = JobScheduler::new().await.unwrap();
     let cleanup_job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
         println!("STARTED CLEANUP");
+        let job_state = state.clone();
         Box::pin(async move {
-            if let Err(e) = filestuff::cleanup_all_log_directories() {
+            let exec_state = job_state.clone();
+            if let Err(e) = filestuff::cleanup_all_log_directories(exec_state).await {
                 println!("FAILED CLEANUP - {e}");
+            } else {
+                println!("FINISHED CLEANUP");
             }
         })
     })
@@ -123,7 +146,8 @@ async fn main() {
     sched.add(cleanup_job).await.unwrap();
     sched.start().await.unwrap();
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3009").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    println!("Serving to `http://localhost:3000`");
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -588,7 +612,7 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
                     if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return "Couldn't create log dir".into_response(); }
                     if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
                     if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
-                    if let Err(e) = filestuff::cleanup_log_directory(&log_path) { println!("couldn't clean up: {}", e); }
+                    if let Err(e) = filestuff::cleanup_log_directory(&log_path, &state).await { println!("couldn't clean up: {}", e); }
                     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
                 },
                 Err(e) => {
@@ -632,7 +656,7 @@ async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>
     // the log must already exist; no need to re-create the log path
     if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
     if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
-    if let Err(e) = filestuff::cleanup_log_directory(&log_path) { println!("{}", e); }
+    if let Err(e) = filestuff::cleanup_log_directory(&log_path, &state).await { println!("{}", e); }
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 

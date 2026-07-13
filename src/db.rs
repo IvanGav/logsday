@@ -1,5 +1,7 @@
 use crate::{AppState, Comment, CommentEntry, LogEntry, Project, User, slug, week};
 
+// TODO `SELECT name FROM sqlite_master WHERE type='table' AND name='users';`
+
 pub async fn create_log(state: &AppState, project_id: i64, title: &str, number: i64) -> Result<i64, sqlx::Error> {
     let result = sqlx::query(
         "INSERT INTO logs (project_uid, title, number, created_on) VALUES (?, ?, ?, ?)"

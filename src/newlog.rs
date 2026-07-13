@@ -2,6 +2,7 @@ use axum::Json;
 use serde_json::json;
 
 use crate::db;
+use crate::filestuff::get_extension;
 // use crate::filestuff;
 use crate::week;
 use crate::{User, Project, LogEntry, AppState};
@@ -50,7 +51,7 @@ pub fn get_existing_files(user: &User, project: &Project, log_num: i64) -> serde
             while let Some(file) = dir.next() {
                 let metadata = file.as_ref().unwrap().metadata().unwrap();
                 let filename = file.unwrap().file_name().to_string_lossy().into_owned();
-                if metadata.is_file() && filename != "index.html" && filename != "index.md" {
+                if metadata.is_file() && filename != "index.html" && filename != "index.md" && get_extension(&filename) != Some("tmp") {
                     list.push(file_response(&filename, metadata.len(), &format!("/uploads/{}/{}/{}/{}", user.username, project.slug, log_num, &filename)).0);
                 }
             }

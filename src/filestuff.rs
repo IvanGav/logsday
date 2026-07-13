@@ -1,8 +1,10 @@
-use std::{fs, io::Cursor, path::Path, collections::HashSet};
+use std::{collections::HashSet, fs, io::Cursor, path::Path, time::SystemTime};
 use image::{AnimationDecoder, DynamicImage, Frame, ImageFormat, ImageResult, codecs::gif::GifDecoder, imageops::FilterType};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use tokio::process::Command;
 use webp_animation::{WebPData, prelude::Encoder};
+
+use crate::AppState;
 
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
@@ -11,15 +13,22 @@ pub enum MediaType {
     Unsupported, Image, Video, Audio,
 }
 
+pub fn get_extension(filename: &str) -> Option<&str> {
+    let split = filename.rsplit_once('.');
+    if let None = split { return None; } // if no extension
+    let split = split.unwrap();
+    if split.0 == "" { return None; } // no name -> `.ext` is the name
+    return Some(split.1);
+}
+
 /// Given a *valid* filename, return its media type by extension
 pub fn media_type(filename: &str) -> MediaType {
-    let split = filename.rsplit_once('.');
-    if let None = split { return MediaType::Unsupported; } // if no extension
-    let split = split.unwrap();
-    if split.0 == "" { return MediaType::Unsupported; } // no name -> `.ext` is the name
-    match split.1.to_lowercase().as_str() {
+    let ext = get_extension(filename);
+    if let None = ext { return MediaType::Unsupported; }
+    let ext = ext.unwrap();
+    match ext.to_lowercase().as_str() {
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "ico" /* | "svg" */ => MediaType::Image,
-        "mp4" | "mpeg" | "webm" | "ogv" | "ogg" /* | "mov" */ => MediaType::Video,
+        "mp4" | "webm" /* | "mov" */ => MediaType::Video,
         "mp3" | "wav" | "oga" | "weba" => MediaType::Audio,
         _ => MediaType::Unsupported,
     }
@@ -31,7 +40,7 @@ pub fn mime_media_type(mime_type: &str) -> MediaType {
     let mime_type = mime_type.split_once(';').unwrap_or((mime_type, "")).0; // get rid of parameters: `type/subtype;parameter=value`
     match mime_type.to_lowercase().as_str() {
         "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/x-icon" /* | "image/svg+xml" */ => MediaType::Image,
-        "video/mp4" | "video/mpeg" | "video/webm" | "video/ogg" /* | "video/quicktime" */ => MediaType::Video,
+        "video/mp4" | "video/webm" /* | "video/quicktime" */ => MediaType::Video,
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/webm" => MediaType::Audio,
         u => { println!("{u}"); MediaType::Unsupported },
     }
@@ -95,18 +104,14 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
-
     let parser = Parser::new_ext(markdown_input, options);
-
     let parser = parser.map(|event| match event {
         pulldown_cmark::Event::Html(text) | pulldown_cmark::Event::InlineHtml(text) => {
             pulldown_cmark::Event::Text(text) // convert html/inline html into just text - no html embedding at all allowed
         }
         other => other,
     });
-
     let mut is_video = false;
-
     let parser = parser.filter_map(|event| {
         match &event {
             Event::Start(Tag::Image { dest_url, .. }) => {
@@ -123,7 +128,6 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
                     Some(event)
                 }
             }
-
             Event::End(TagEnd::Image { .. }) => {
                 if is_video {
                     is_video = false;
@@ -132,12 +136,9 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
                     Some(event)
                 }
             }
-
-            // Event::Text(_) => { if is_video { None } else { Some(event) } }
             _ => Some(event),
         }
     });
-
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
     return html_output;
@@ -191,7 +192,7 @@ pub fn count_log_directory_size<P: AsRef<Path>>(dir_path: P, log_html_content: &
 }
 
 /// Clean up the log directory - only keep the media files linked in index.md/index.html
-pub fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
+pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P, state: &AppState) -> std::io::Result<()> {
     let dir = dir_path.as_ref();
     let index_path = dir.join("index.html");
     // No index.html = log wasn't uploaded in the end; just delete the entire dir
@@ -200,30 +201,44 @@ pub fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()>
         return Ok(());
     }
     let html_content = fs::read_to_string(&index_path)?;
-    let document = scraper::Html::parse_document(&html_content);
     let mut linked_files = HashSet::new();
-    // Look for tags that use 'src' attributes (img, video, audio, source)
-    let src_selector = scraper::Selector::parse("[src]").unwrap();
-    for element in document.select(&src_selector) {
-        if let Some(src_val) = element.value().attr("src") {
-            if let Some(filename) = Path::new(src_val).file_name() {
-                linked_files.insert(filename.to_string_lossy().into_owned()); // TODO why `to_string_lossy`?
+    {
+        let document = scraper::Html::parse_document(&html_content);
+        // Look for tags that use 'src' attributes (img, video, audio, source)
+        let src_selector = scraper::Selector::parse("[src]").unwrap();
+        for element in document.select(&src_selector) {
+            if let Some(src_val) = element.value().attr("src") {
+                if let Some(filename) = Path::new(src_val).file_name() {
+                    linked_files.insert(filename.to_string_lossy().into_owned());
+                }
+            }
+        }
+        let mut all_files = fs::read_dir(dir)?;
+        while let Some(file) = all_files.next() {
+            let file_path = file?.path();
+            let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned(); // it's safe to unwrap because we're already just reading the existing dir
+            if file_name == "index.html" || file_name == "index.md" || get_extension(&file_name) == Some("tmp") { continue; }
+            if !linked_files.contains(&file_name) {
+                fs::remove_file(file_path)?;
+                linked_files.remove(&file_name);
             }
         }
     }
-    let mut all_files = fs::read_dir(dir)?;
-    while let Some(file) = all_files.next() {
-        let file_path = file?.path();
-        let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned(); // TODO again the same thing; also it's safe to unwrap because we're already just reading the existing dir
-        if file_name == "index.html" || file_name == "index.md" { continue; }
-        if !linked_files.contains(&file_name) {
-            fs::remove_file(file_path)?;
+    for file in linked_files {
+        if media_type(&file) == MediaType::Video {
+            // put a job to compress
+            println!("COMPRESS QUEUING {}", dir.join(&file).to_str().unwrap());
+            let job = CompressVideoJob { path: dir.join(&file).to_string_lossy().into_owned(), created_on: SystemTime::now() };
+            match state.tx.send(job).await {
+                Ok(_) => {}
+                Err(_) => { println!("Could not queue a video to compress: {}", file); }
+            }
         }
     }
     Ok(())
 }
 
-pub fn cleanup_all_log_directories() -> std::io::Result<()> {
+pub async fn cleanup_all_log_directories(state: AppState) -> std::io::Result<()> {
     let mut users = fs::read_dir("uploads/users")?;
     while let Some(userdir) = users.next() {
         let userdir = userdir?;
@@ -236,31 +251,75 @@ pub fn cleanup_all_log_directories() -> std::io::Result<()> {
             while let Some(logdir) = logs.next() {
                 let logdir = logdir?;
                 if !logdir.metadata()?.is_dir() { continue; }
-                cleanup_log_directory(logdir.path())?;
+                cleanup_log_directory(logdir.path(), &state).await?;
             }
         }
     }
     Ok(())
 }
 
-pub async fn compress_video(input_path: &str, output_path: &str) -> std::io::Result<()> {
-    // maybe try using: nice -n 19 ffmpeg -threads 1 -i input.mov -vf "scale='min(1920,iw)':-2" -c:v libx264 -preset veryfast -crf 24 -x264opts rc-lookahead=15 -c:a aac -b:a 128k output.mp4
-    let status = Command::new("ffmpeg")
+/* Compressing videos */
+
+#[derive(Debug)]
+pub struct CompressVideoJob {
+    pub path: String,
+    pub created_on: SystemTime,
+}
+
+pub async fn compress_video(CompressVideoJob{path, created_on}: CompressVideoJob) {
+    let ext = match get_extension(&path) { Some(e) => e, None => { println!("COMPRESS FAIL: could not get extension of {}", path); return; }};
+    let status = match ext {
+        "mp4" => compress_mp4(&path).await,
+        _ => Err(std::io::Error::other(format!("COMPRESS FAIL: not a recognized extension: {}", ext)))
+    };
+    match status {
+        Ok(_) => {
+            let tmp_file = format!("{}.tmp", path);
+            if let Ok(metadata) = fs::metadata(&path) {
+                if let Ok(modified) = metadata.modified() {
+                    if modified <= created_on {
+                        let _ = fs::rename(tmp_file, &path);
+                        println!("COMPRESS SUCCESS: {}", &path);
+                        return;
+                    }
+                }
+            }
+            let _ = tokio::fs::remove_file(tmp_file).await;
+            println!("COMPRESS WARN: compressed success, but original file was deleted or replaced: {}", path);
+        }
+        Err(e) => { println!("COMPRESS FAIL: {}", e); }
+    }
+}
+
+/*
+nice -n 19 ffmpeg -threads 1 -i btd0log1.mp4 -vf "scale='min(1920,iw)':-2" -c:v libx264 -preset veryfast -crf 24 -x264opts rc-lookahead=15 -c:a aac -b:a 128k -f mp4 btd0log1compressed.mp4
+*/
+
+async fn compress_mp4(input_path: &str) -> std::io::Result<()> {
+    let status = Command::new("nice")
         .args([
+            "-n", "19", 
+            "ffmpeg", 
+            "-threads", "1", 
             "-i", input_path,
-            "-vcodec", "libx264", // libsvtav1 for av1
-            "-crf", "23", // 51 = bad; 27 for av1 is good
-            "-acodec", "aac",
-            "-b:a", "128k", // Audio bitrate
-            "-y", // Overwrite output file if it exists
-            output_path,
+            "-vf", "scale='min(1920,iw)':-2",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "24",
+            "-x264opts", "rc-lookahead=15",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-f", "mp4",
+            "-y",
+            format!("{}.tmp", input_path).as_str(),
         ])
+        .stdout(std::process::Stdio::from(std::fs::OpenOptions::new().create(true).append(true).open("ffmpeg.log").unwrap()))
+        .stderr(std::process::Stdio::from(std::fs::OpenOptions::new().create(true).append(true).open("ffmpeg.log").unwrap()))
         .status()
         .await?;
-
     if status.success() {
         Ok(())
     } else {
-        Err(std::io::Error::new(std::io::ErrorKind::Other, "FFmpeg execution failed"))
+        Err(std::io::Error::other("FFmpeg execution failed"))
     }
 }

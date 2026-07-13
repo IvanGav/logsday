@@ -1,3 +1,4 @@
 /target
 /uploads
 sqlite.db
+*.log
