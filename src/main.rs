@@ -897,8 +897,7 @@ async fn post_change_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<Update
     let user_path = format!("uploads/users/{}", &user.username);
     let pfp_path = format!("{}/{}", &user_path, "pfp.webp");
 
-    let webp_img = time(|| filestuff::convert_to_webp(&data.pfp.contents)).unwrap();
-    // let webp_img = get_or!(filestuff::convert_to_webp(&data.pfp.contents), "Could not convert to webp");
+    let webp_img = get_or!(filestuff::convert_to_webp(&data.pfp.contents), "Could not convert to webp");
     if let Ok(_) = fs::create_dir_all(user_path) {
         if let Ok(_) = fs::write(pfp_path, &webp_img) {
             return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
