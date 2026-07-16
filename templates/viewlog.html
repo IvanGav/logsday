@@ -5,6 +5,7 @@
         <h2><a href="/u/{{ user.username }}">{{ user.displayname }}</a> / <a href="/u/{{ user.username }}/{{ project.slug }}">{{ project.title }}</a> / Log {{ log.number }}: {{ log.title }}</h2>
         <span>Created on: <span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
     </div>
+    <div hx-trigger="load, refreshLikes from:body" hx-get="/like/log/{{ log.uid }}"></div>
     <hr>
     <div hx-trigger="load" hx-get="/uploads/{{ user.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content" hx-on::after:swap="hljs.highlightAll()"></div>
     {% if owner %}

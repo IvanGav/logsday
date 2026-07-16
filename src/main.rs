@@ -136,6 +136,8 @@ async fn main() {
         .route("/u/{username}/{project_slug}", get(get_view_project))
         .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
         .route("/bits/nav-user", get(get_nav_user_bit))
+        .route("/like/log/{log_uid}", get(get_like))
+        .route("/like/log/{log_uid}/{action}", post(post_like))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -925,6 +927,53 @@ async fn post_change_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<Update
     } else {
         return "Could not create user directory".into_response();
     }
+}
+
+// Route /like/log/{log_uid}
+
+#[derive(Template)]
+#[template(path = "bits/likes.html")]
+struct LikesTemplate {
+    ty: &'static str,
+    uid: i64,
+    like: Option<db::Like>,
+    likes: db::Likes,
+    authd: bool,
+}
+
+async fn get_like(session: Session, State(state): State<AppState>, Path(log_uid): Path<i64>) -> impl IntoResponse {
+    let uid = session.get::<i64>("uid").await.unwrap_or(None);
+    match uid {
+        Some(uid) => {
+            match db::get_user(&state, uid).await {
+                Some(user) => {
+                    let like = db::get_log_like(&state, user.uid, log_uid).await;
+                    let likes = db::get_log_likes(&state, log_uid).await;
+                    return Html(LikesTemplate{ty:"log",uid:log_uid,like,likes,authd:true}.render().unwrap()).into_response();
+                }
+                None => {
+                    let _ = session.clear().await; 
+                    return hx_redirect("/login").into_response();
+                }
+            }
+        }
+        None => {
+            let likes = db::get_log_likes(&state, log_uid).await;
+            return Html(LikesTemplate{ty:"log",uid:log_uid,like:None,likes,authd:false}.render().unwrap()).into_response();
+        }
+    }
+}
+
+// Route /like/log/{log_uid}/like|dislike|unlike
+
+async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((log_uid, action)): Path<(i64, String)>) -> impl IntoResponse {
+    match action.as_ref() {
+        "like" => { if let Err(e) = db::set_log_like(&state, user.uid, log_uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
+        "dislike" => { if let Err(e) = db::set_log_like(&state, user.uid, log_uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
+        "unlike" => { if let Err(e) = db::set_log_like(&state, user.uid, log_uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+        _ => { return "Invalid action".into_response(); }
+    }
+    return (StatusCode::OK, [("HX-Trigger", "refreshLikes")], "").into_response();
 }
 
 fn time<F: Fn() -> T, T>(f: F) -> T {

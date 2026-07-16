@@ -133,6 +133,15 @@ CREATE TABLE log_comments (
     FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
+
+CREATE TABLE log_likes (
+    user_uid INTEGER NOT NULL,
+    log_uid INTEGER NOT NULL,
+    is_like BOOLEAN NOT NULL, -- like or dislike
+    PRIMARY KEY (user_uid, log_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
+);
 ```
 
 ## TODO list (no particular order)

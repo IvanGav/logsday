@@ -1,0 +1,17 @@
+{% if authd %}
+    <div>
+        {% if let None = like %}
+            <label>{{ likes.likes }} <button hx-post="/like/{{ ty }}/{{ uid }}/like">Like</button></label>
+            <label><button hx-post="/like/{{ ty }}/{{ uid }}/dislike">Dislike</button> {{ likes.dislikes }}</label>
+        {% else if let Some(crate::db::Like{is_like:true}) = like %}
+            <label>{{ likes.likes }} <button style="color:green" hx-post="/like/{{ ty }}/{{ uid }}/unlike">Liked</button></label>
+            <label><button hx-post="/like/{{ ty }}/{{ uid }}/dislike">Dislike</button> {{ likes.dislikes }}</label>
+        {% else if let Some(crate::db::Like{is_like:false}) = like %}
+            <label>{{ likes.likes }} <button hx-post="/like/{{ ty }}/{{ uid }}/like">Like</button></label>
+            <label><button style="color:red" hx-post="/like/{{ ty }}/{{ uid }}/unlike">Disliked</button> {{ likes.dislikes }}</label>
+        {% endif %}
+    </div>
+{% else %}
+    <label>{{ likes.likes }} <button disabled>Likes</button></label>
+    <label><button disabled>Dislikes</button> {{ likes.dislikes }}</label>
+{% endif %}
