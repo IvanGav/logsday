@@ -1,8 +1,8 @@
 use std::{collections::HashSet, fs, io::Cursor, path::Path, time::SystemTime};
-use image::{AnimationDecoder, DynamicImage, Frame, ImageFormat, ImageResult, codecs::gif::GifDecoder, imageops::FilterType};
+use image::{AnimationDecoder, DynamicImage, ImageFormat, codecs::gif::GifDecoder};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use tokio::process::Command;
-use webp_animation::{WebPData, prelude::Encoder};
+use webp_animation::prelude::Encoder;
 
 use crate::AppState;
 
@@ -159,10 +159,6 @@ pub async fn get_directory_size_bytes<P: AsRef<Path>>(dir_path: P) -> std::io::R
 pub async fn verify_magic_bytes_match_extension(filename: &str, bytes: &[u8]) -> bool {
     let kind = match infer::get(&bytes) { Some(k) => k, None => { return false; }};
     return mime_media_type(kind.mime_type()) == media_type(filename);
-}
-
-pub fn log_dir_exists(username: &str, project_slug: &str, log_num: i64) -> bool {
-    return Path::new(&format!("uploads/users/{}/{}/{}", username, project_slug, log_num)).exists();
 }
 
 /// Count the size of the media files linked 

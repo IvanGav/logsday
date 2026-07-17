@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    Form, Json, Router, ServiceExt, body::Bytes, extract::{DefaultBodyLimit, FromRef, FromRequestParts}, http::{HeaderMap, StatusCode, header, request::Parts}, response::{Html, IntoResponse, Redirect, Response}, routing::{delete, get, post} //async_trait
+    Form, Router, ServiceExt, body::Bytes, extract::{DefaultBodyLimit, FromRef, FromRequestParts}, http::{HeaderMap, StatusCode, header, request::Parts}, response::{Html, IntoResponse, Redirect, Response}, routing::{delete, get, post} //async_trait
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
@@ -118,6 +118,9 @@ async fn main() {
         .route("/logout", get(get_logout).post(post_logout))
         .route("/mdguide", get(get_mdguide))
         .route("/credits", get(get_credits))
+        .route("/account", get(get_account))
+        .route("/account/change-displayname", post(post_change_displayname))
+        .route("/account/change-pfp", post(post_change_pfp))
         .route("/new/project", get(get_new_project).post(post_new_project))
         .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
         .route("/edit/log/{project_slug}/{log_number}", get(get_edit_log).post(post_edit_log))
@@ -129,16 +132,13 @@ async fn main() {
         .route("/del/media/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
         .route("/del/media/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
         .route("/comment/{username}/{project_slug}/{log_number}", get(get_log_comments).post(post_log_comments))
-        .route("/account", get(get_account))
-        .route("/account/change-displayname", post(post_change_displayname))
-        .route("/account/change-pfp", post(post_change_pfp))
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
         .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
         .route("/bits/nav-user", get(get_nav_user_bit))
-        .route("/like/{ty}/{log_uid}", get(get_like))
-        .route("/like/{ty}/{log_uid}/{action}", post(post_like))
+        .route("/like/{ty}/{uid}", get(get_like))
+        .route("/like/{ty}/{uid}/{action}", post(post_like))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -178,10 +178,6 @@ fn generic_error() -> impl IntoResponse {
 
 fn hx_redirect(route: &str) -> impl IntoResponse {
     return ([("HX-Redirect", route)], "Redirecting...").into_response();
-}
-
-fn redirect_login() -> impl IntoResponse {
-    return Redirect::to("/login").into_response();
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -224,15 +220,6 @@ impl LogEntry {
 }
 
 #[derive(Debug, sqlx::FromRow, Default)]
-struct CommentEntry {
-    uid: i64, // unique
-    log_uid: i64,
-    user_uid: i64,
-    text: String,
-    created_on: week::UnixTime,
-}
-
-#[derive(Debug, sqlx::FromRow, Default)]
 struct Comment {
     displayname: String,
     username: String,
@@ -269,7 +256,7 @@ impl AuthdUser {
     }
 }
 
-async fn testing(Query(params): Query<HashMap<String, String>>, Path(user_id): Path<u32>) -> String {
+async fn _testing(Query(params): Query<HashMap<String, String>>, Path(user_id): Path<u32>) -> String {
     let mut a: String = user_id.to_string();
     a.push('\t');
     for s in params {
@@ -1007,7 +994,7 @@ async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Pa
     return (StatusCode::OK, [("HX-Trigger", "refreshLikes")], "").into_response();
 }
 
-fn time<F: Fn() -> T, T>(f: F) -> T {
+fn _time<F: Fn() -> T, T>(f: F) -> T {
   let start = std::time::SystemTime::now();
   let result = f();
   let end = std::time::SystemTime::now();

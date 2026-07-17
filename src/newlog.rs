@@ -3,9 +3,8 @@ use serde_json::json;
 
 use crate::db;
 use crate::filestuff::get_extension;
-// use crate::filestuff;
 use crate::week;
-use crate::{User, Project, LogEntry, AppState};
+use crate::{User, Project, AppState};
 
 pub enum NewlogResult {
     New(Project, i64),

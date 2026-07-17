@@ -6,15 +6,14 @@ You will be able to upload a devlog exactly once a week.
 
 ## Structure
 
-- To run the server, `cargo run`
-- Entry point for the server is `src/main.rs`
+- To run the server, `cargo run` or `cargo run --release`
+  - It should be available on `http://localhost:3000/`
+  - Entry point for the server is `src/main.rs`
 - `Askama`'s templates (`#[template(path = "index.html")]`) live in `./templates` directory
   - Note that `Askama`'s templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
 - `Axum`'s Router uses `nest_service("/static", ServeDir::new("public"))` to map requests to `/static` to take from `./public` directory. That way, any requests to CSS or JS will take from there.
-- The database is `./sqlite.db`. Needs to be created manually. Before running you might need to set an env variable `DATABASE_URL="sqlite:sqlite.db"` or `DATABASE_URL="~/logsday/sqlite.db"`. You will also have to create all tables manually (listed in `SQLite Tables` section).
+- The database is `./sqlite.db`. Needs to be created manually. You will also have to create all tables manually (listed in `SQLite Tables` section).
 - You have to have `nice` and `ffmpeg` cmd utilities instealled.
-  - `ffmpeg -formats` - list available containers (mp4, webm, etc)
-  - `ffmpeg -codecs` - list available codecs (libx264, etc)
 
 ## Paths
 
@@ -36,6 +35,7 @@ You will be able to upload a devlog exactly once a week.
 - `/new/media/{project_slug}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; new log
 - `/new/media/{project_slug}/{log_number}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; specified log
 - `/edit/log/{project_slug}/{log_number}` - give a view for editing an existing log (only today's allowed)
+- `/del/user/{username}` - delete the user
 - `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
 - `/del/log/{project_slug}/{log_number}` - delete the log for the specified project; redirect to `/login` when not logged in
 - `/del/media/{project_slug}/new/{file_name}` - delete the given file from the newlog
@@ -44,6 +44,8 @@ You will be able to upload a devlog exactly once a week.
 - `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
 - `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
 - `/bits/nav-user` => `templates/bits/login.html`/`nav_user.html` - get the navbar login/signup or the logout/time until logsday; bits uris are htmx helpers
+- `/like/{ty}/{uid}` - get a bit for the amount of likes on whatever the `ty` is - `log`/`project`/`user`
+- `/like/{ty}/{uid}/{action}` - put a like/dislike/remove reaction for whatever the `ty` is - `log`/`project`/`user` (`action` is either of `like`/`dislike`/`unlike`)
 
 ## Tech Stack
 
@@ -67,14 +69,15 @@ You will be able to upload a devlog exactly once a week.
   - `tokio_cron_scheduler` for cron jobs from Rust, for now
   - `tower_sessions` for easy sessions
   - `axum_typed_multipart` for convenience, for now
+  - `tower_governor` for traffic control; currently unused
 
 ## Notes
 
-- A lot of research for this project was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very convenient. And I don't need the nuiance of deep-diving into the topics yet. If capstone taught me something - I shouldn't be as afraid to just do something with a moderate amount of planning. Overplanning can be overwhelming and unproductive (to me).
-- `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page. Any exceptions will be noted here and in the code.
-  - Exception 1: `/new/media/...` should return a json with `{error}` or `{filename, filesize, filepath}`
+- A lot of research for this project was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very quick and convenient.
+- `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page. Any exceptions will be noted in the code.
+  - Example Exception: `/new/media/...` should return a json with `{error}` or `{filename, filesize, filepath}`
 - Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
-- You will not be able to private a project/log. You can unlist it, but not private.
+- You will not be able to private a project/log. You will be able to unlist it, but not private.
 
 ## Comprehensive .md rendering rules
 
@@ -169,7 +172,6 @@ CREATE TABLE user_likes (
 	- (maybe) Let edit comments
 	- Let reply to comments
 	- Add comments to user/project pages
-- Let like/dislike log/project/user
 - Add updates (`{last_log#}.{update#}`)
 - Highlight code blocks in Rust
 - Add tags to logs/projects/users
@@ -182,5 +184,7 @@ CREATE TABLE user_likes (
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
 - Create sqlite tables if they don't yet exist
+- Make phone compatible
+- Allow to unlist projects
 - Fix Bugs:
   - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

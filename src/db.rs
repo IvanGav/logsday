@@ -1,6 +1,4 @@
-use std::str::FromStr;
-
-use crate::{AppState, Comment, CommentEntry, LogEntry, Project, User, slug, week};
+use crate::{AppState, Comment, LogEntry, Project, User, slug, week};
 
 // TODO `SELECT name FROM sqlite_master WHERE type='table' AND name='users';`
 
@@ -247,7 +245,7 @@ pub async fn get_last_project_log_by_slug(state: &AppState, user_uid: i64, proje
     return log.unwrap_or(None);
 }
 
-pub async fn get_last_project_log(state: &AppState, project_uid: i64) -> Option<LogEntry> {
+pub async fn _get_last_project_log(state: &AppState, project_uid: i64) -> Option<LogEntry> {
     let log = sqlx::query_as::<_,LogEntry>("SELECT * FROM logs WHERE project_uid = ? ORDER BY created_on DESC, number DESC LIMIT 1;")
         .bind(project_uid)
         .fetch_optional(&state.db)
@@ -265,17 +263,6 @@ pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(
         .execute(&state.db)
         .await?;
     return Ok(());
-}
-
-pub async fn get_raw_comments_for_log(state: &AppState, log_uid: i64) -> Vec<CommentEntry> {
-    let comments = sqlx::query_as::<_,CommentEntry>("SELECT * FROM comments WHERE log_uid = ?;")
-        .bind(&log_uid)
-        .fetch_all(&state.db)
-        .await;
-    if let Err(e) = &comments {
-        println!("DB ERROR: {}", e);
-    }
-    return comments.unwrap_or(vec![]);
 }
 
 pub async fn get_comments_for_log(state: &AppState, log_uid: i64,) -> Vec<Comment> {
