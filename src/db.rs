@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{AppState, Comment, CommentEntry, LogEntry, Project, User, slug, week};
 
 // TODO `SELECT name FROM sqlite_master WHERE type='table' AND name='users';`
@@ -399,6 +401,92 @@ pub async fn set_log_like(state: &AppState, user_uid: i64, log_uid: i64, like: O
             sqlx::query("DELETE FROM log_likes WHERE user_uid = ? AND log_uid = ?")
                 .bind(user_uid)
                 .bind(log_uid)
+                .execute(&state.db)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+// return Some(true)=like, return Some(false)=dislike, reutrn None=no reaction
+pub async fn get_project_like(state: &AppState, user_uid: i64, project_uid: i64) -> Option<Like> {
+    let like = sqlx::query_as::<_,Like>("SELECT is_like FROM project_likes WHERE user_uid = ? AND project_uid = ?;")
+        .bind(user_uid)
+        .bind(project_uid)
+        .fetch_optional(&state.db)
+        .await;
+    if let Err(e) = &like {
+        println!("DB ERROR: {}", e);
+    }
+    return like.unwrap_or(None);
+}
+
+// Some(true)=like, return Some(false)=dislike, None=no reaction
+pub async fn set_project_like(state: &AppState, user_uid: i64, project_uid: i64, like: Option<Like>) -> Result<(), sqlx::Error> {
+    match like {
+        Some(Like{is_like}) => {
+            // like/dislike
+            sqlx::query(
+                r#"
+                INSERT INTO project_likes (user_uid, project_uid, is_like)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_uid, project_uid) 
+                DO UPDATE SET is_like = excluded.is_like
+                "#)
+                .bind(user_uid)
+                .bind(project_uid)
+                .bind(is_like)
+                .execute(&state.db)
+                .await?;
+        }
+        None => {
+            // unlike
+            sqlx::query("DELETE FROM project_likes WHERE user_uid = ? AND project_uid = ?")
+                .bind(user_uid)
+                .bind(project_uid)
+                .execute(&state.db)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+// return Some(true)=like, return Some(false)=dislike, reutrn None=no reaction
+pub async fn get_user_like(state: &AppState, user_uid: i64, user_profile_uid: i64) -> Option<Like> {
+    let like = sqlx::query_as::<_,Like>("SELECT is_like FROM user_likes WHERE user_uid = ? AND user_profile_uid = ?;")
+        .bind(user_uid)
+        .bind(user_profile_uid)
+        .fetch_optional(&state.db)
+        .await;
+    if let Err(e) = &like {
+        println!("DB ERROR: {}", e);
+    }
+    return like.unwrap_or(None);
+}
+
+// Some(true)=like, return Some(false)=dislike, None=no reaction
+pub async fn set_user_like(state: &AppState, user_uid: i64, user_profile_uid: i64, like: Option<Like>) -> Result<(), sqlx::Error> {
+    match like {
+        Some(Like{is_like}) => {
+            // like/dislike
+            sqlx::query(
+                r#"
+                INSERT INTO user_likes (user_uid, user_profile_uid, is_like)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_uid, user_profile_uid) 
+                DO UPDATE SET is_like = excluded.is_like
+                "#)
+                .bind(user_uid)
+                .bind(user_profile_uid)
+                .bind(is_like)
+                .execute(&state.db)
+                .await?;
+        }
+        None => {
+            // unlike
+            sqlx::query("DELETE FROM user_likes WHERE user_uid = ? AND user_profile_uid = ?")
+                .bind(user_uid)
+                .bind(user_profile_uid)
                 .execute(&state.db)
                 .await?;
         }

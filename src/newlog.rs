@@ -30,6 +30,7 @@ pub async fn newlog_num(state: &AppState, user: &User, project_slug: &str) -> Ne
 }
 
 pub fn file_response(file_name: &str, incoming_size: u64, log_file_web_path: &str) -> Json<serde_json::Value> {
+    let log_file_web_path = askama::filters::urlencode(log_file_web_path).unwrap().to_string();
     return Json(json!({
         "filename": file_name,
         "filesize": incoming_size,

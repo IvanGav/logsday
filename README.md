@@ -56,7 +56,7 @@ You will be able to upload a devlog exactly once a week.
   - `highlight.js` highlighting code blocks
 - Rust Crates:
   - `axum` for web server basics
-  - `aksama` for template rendering
+  - `askama` for template rendering
   - `argon2` for password hashing
   - `pulldown-cmark` for markdown to html rendering
   - `sqlx` for interacting with sqlite db
@@ -141,6 +141,24 @@ CREATE TABLE log_likes (
     PRIMARY KEY (user_uid, log_uid),
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
     FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
+);
+
+CREATE TABLE project_likes (
+    user_uid INTEGER NOT NULL,
+    project_uid INTEGER NOT NULL,
+    is_like BOOLEAN NOT NULL, -- like or dislike
+    PRIMARY KEY (user_uid, project_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
+);
+
+CREATE TABLE user_likes (
+    user_uid INTEGER NOT NULL,
+    user_profile_uid INTEGER NOT NULL,
+    is_like BOOLEAN NOT NULL, -- like or dislike
+    PRIMARY KEY (user_uid, user_profile_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (user_profile_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 ```
 

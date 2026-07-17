@@ -209,7 +209,8 @@ pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P, state: &AppState
         for element in document.select(&src_selector) {
             if let Some(src_val) = element.value().attr("src") {
                 if let Some(filename) = Path::new(src_val).file_name() {
-                    linked_files.insert(filename.to_string_lossy().into_owned());
+                    let filename = filename.to_string_lossy().into_owned();
+                    linked_files.insert(filename);
                 }
             }
         }
@@ -218,6 +219,7 @@ pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P, state: &AppState
             let file_path = file?.path();
             let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned(); // it's safe to unwrap because we're already just reading the existing dir
             if file_name == "index.html" || file_name == "index.md" || get_extension(&file_name) == Some("tmp") { continue; }
+            let file_name = askama::filters::urlencode(file_name).unwrap().to_string();
             if !linked_files.contains(&file_name) {
                 fs::remove_file(file_path)?;
                 linked_files.remove(&file_name);

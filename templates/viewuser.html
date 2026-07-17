@@ -15,6 +15,7 @@
             </div>
         </div>
     </div>
+    <div hx-trigger="load, refreshLikes from:body" hx-get="/like/user/{{ user.uid }}"></div>
     {% if owner %} <a href="/new/project">New Project</a> {% endif %}
     <hr>
     <div class="project-list">

@@ -137,8 +137,8 @@ async fn main() {
         .route("/u/{username}/{project_slug}", get(get_view_project))
         .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
         .route("/bits/nav-user", get(get_nav_user_bit))
-        .route("/like/log/{log_uid}", get(get_like))
-        .route("/like/log/{log_uid}/{action}", post(post_like))
+        .route("/like/{ty}/{log_uid}", get(get_like))
+        .route("/like/{ty}/{log_uid}/{action}", post(post_like))
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
@@ -935,22 +935,32 @@ async fn post_change_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<Update
 #[derive(Template)]
 #[template(path = "bits/likes.html")]
 struct LikesTemplate {
-    ty: &'static str,
+    ty: String,
     uid: i64,
     like: Option<db::Like>,
     likes: db::Likes,
     authd: bool,
 }
 
-async fn get_like(session: Session, State(state): State<AppState>, Path(log_uid): Path<i64>) -> impl IntoResponse {
-    let uid = session.get::<i64>("uid").await.unwrap_or(None);
-    match uid {
-        Some(uid) => {
-            match db::get_user(&state, uid).await {
-                Some(user) => {
-                    let like = db::get_log_like(&state, user.uid, log_uid).await;
-                    let likes = db::get_log_likes(&state, log_uid).await;
-                    return Html(LikesTemplate{ty:"log",uid:log_uid,like,likes,authd:true}.render().unwrap()).into_response();
+async fn get_like(session: Session, State(state): State<AppState>, Path((ty, uid)): Path<(String, i64)>) -> impl IntoResponse {
+    let likes = match ty.as_ref() {
+        "user" => db::get_user_likes(&state, uid).await,
+        "project" => db::get_project_likes(&state, uid).await,
+        "log" => db::get_log_likes(&state, uid).await,
+        _ => { return "Wrong type".into_response(); }
+    };
+    let user_uid = session.get::<i64>("uid").await.unwrap_or(None);
+    match user_uid {
+        Some(user_uid) => {
+            match db::get_user(&state, user_uid).await {
+                Some(_) => {
+                    let like = match ty.as_ref() {
+                        "user" => db::get_user_like(&state, user_uid, uid).await,
+                        "project" => db::get_project_like(&state, user_uid, uid).await,
+                        "log" => db::get_log_like(&state, user_uid, uid).await,
+                        _ => { return "Wrong type".into_response(); }
+                    };
+                    return Html(LikesTemplate{ty,uid,like,likes,authd:true}.render().unwrap()).into_response();
                 }
                 None => {
                     let _ = session.clear().await; 
@@ -959,8 +969,7 @@ async fn get_like(session: Session, State(state): State<AppState>, Path(log_uid)
             }
         }
         None => {
-            let likes = db::get_log_likes(&state, log_uid).await;
-            return Html(LikesTemplate{ty:"log",uid:log_uid,like:None,likes,authd:false}.render().unwrap()).into_response();
+            return Html(LikesTemplate{ty,uid,like:None,likes,authd:false}.render().unwrap()).into_response();
         }
     }
 }
@@ -977,22 +986,22 @@ async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Pa
                 _ => { return "Invalid action".into_response(); }
             }
         }
-        // "project" => {
-        //     match action.as_ref() {
-        //         "like" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
-        //         "dislike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
-        //         "unlike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
-        //         _ => { return "Invalid action".into_response(); }
-        //     }
-        // }
-        // "user" => {
-        //     match action.as_ref() {
-        //         "like" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
-        //         "dislike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
-        //         "unlike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
-        //         _ => { return "Invalid action".into_response(); }
-        //     }
-        // }
+        "project" => {
+            match action.as_ref() {
+                "like" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
+                "dislike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
+                "unlike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+                _ => { return "Invalid action".into_response(); }
+            }
+        }
+        "user" => {
+            match action.as_ref() {
+                "like" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
+                "dislike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
+                "unlike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+                _ => { return "Invalid action".into_response(); }
+            }
+        }
         _ => { return "Invalid type".into_response(); }
     }
     return (StatusCode::OK, [("HX-Trigger", "refreshLikes")], "").into_response();

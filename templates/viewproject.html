@@ -6,6 +6,7 @@
         <div>
             <h2><a href="/u/{{ user.username }}">{{ user.displayname }}</a> / {{ project.title }}</h2>
             <span>Created on: <span unix-utc="{{ project.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
+            <div hx-trigger="load, refreshLikes from:body" hx-get="/like/project/{{ project.uid }}"></div>
         </div>
     </div>
     <div>{{ project.description }}</div>
