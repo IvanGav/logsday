@@ -4,7 +4,7 @@ use axum::{
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+// use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor};
 use std::{collections::HashMap, fs, net::SocketAddr};
 use tower_http::services::ServeDir;
 use sqlx::sqlite::SqlitePool;
@@ -74,21 +74,22 @@ async fn main() {
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
     // prevent same IP from spamming requests; up to 250 requests in burst allowed, refreshing 1 every second
-    let governor_config = GovernorConfigBuilder::default()
-       .per_second(1)
-       .burst_size(250)
-       .finish()
-       .expect("Could not create governor_config");
+    // let governor_config = GovernorConfigBuilder::default()
+    //     .key_extractor(SmartIpKeyExtractor)
+    //     .per_second(1)
+    //     .burst_size(250)
+    //     .finish()
+    //     .expect("Could not create governor_config");
 
-    let governor_limiter = governor_config.limiter().clone();
+    // let governor_limiter = governor_config.limiter().clone();
 
     // every minute, clean up old ips; prevents them from being stored indefinitely
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            governor_limiter.retain_recent();
-        }
-    });
+    // tokio::spawn(async move {
+    //     loop {
+    //         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    //         governor_limiter.retain_recent();
+    //     }
+    // });
 
     let (tx, mut rx) = mpsc::channel::<filestuff::CompressVideoJob>(100);
     let state = AppState { db: db_pool, tx };
@@ -141,7 +142,7 @@ async fn main() {
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
-        .layer(GovernorLayer::new(governor_config))
+        // .layer(GovernorLayer::new(governor_config))
         .layer(session_layer)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024 * 1024)) // do not allow uploads of over 10GB; should also be enforced on client side
         .with_state(state.clone());
@@ -964,14 +965,35 @@ async fn get_like(session: Session, State(state): State<AppState>, Path(log_uid)
     }
 }
 
-// Route /like/log/{log_uid}/like|dislike|unlike
+// Route /like/{log|project|user}/{uid}/{like|dislike|unlike}
 
-async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((log_uid, action)): Path<(i64, String)>) -> impl IntoResponse {
-    match action.as_ref() {
-        "like" => { if let Err(e) = db::set_log_like(&state, user.uid, log_uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
-        "dislike" => { if let Err(e) = db::set_log_like(&state, user.uid, log_uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
-        "unlike" => { if let Err(e) = db::set_log_like(&state, user.uid, log_uid, None).await { println!("DB Error when trying to unlike: {e}")} }
-        _ => { return "Invalid action".into_response(); }
+async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((ty, uid, action)): Path<(String, i64, String)>) -> impl IntoResponse {
+    match ty.as_ref() {
+        "log" => {
+            match action.as_ref() {
+                "like" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
+                "dislike" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
+                "unlike" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+                _ => { return "Invalid action".into_response(); }
+            }
+        }
+        // "project" => {
+        //     match action.as_ref() {
+        //         "like" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
+        //         "dislike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
+        //         "unlike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+        //         _ => { return "Invalid action".into_response(); }
+        //     }
+        // }
+        // "user" => {
+        //     match action.as_ref() {
+        //         "like" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
+        //         "dislike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
+        //         "unlike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+        //         _ => { return "Invalid action".into_response(); }
+        //     }
+        // }
+        _ => { return "Invalid type".into_response(); }
     }
     return (StatusCode::OK, [("HX-Trigger", "refreshLikes")], "").into_response();
 }
