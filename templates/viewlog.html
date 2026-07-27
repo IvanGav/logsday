@@ -10,7 +10,7 @@
     <div hx-trigger="load" hx-get="/uploads/{{ user.username }}/{{ project.slug }}/{{ log.number }}/index.html" class="log-content" hx-on::after:swap="hljs.highlightAll()"></div>
     {% if owner %}
         <hr>
-        <button class="link" hx-post="/del/log/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
+        <button class="link" hx-post="/del/{{ user.username }}/{{ project.slug }}/{{ log.number }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Log</button>
         <p id="del-err"></p>
     {% endif %}
     <hr>

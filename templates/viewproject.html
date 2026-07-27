@@ -12,7 +12,7 @@
     <div>{{ project.description }}</div>
     {% if owner %}
         <br>
-        <a href="/new/log/{{ project.slug }}">New Log</a>
+        <a href="/u/{{ user.username }}/{{ project.slug }}/new">New Log</a>
     {% endif %}
     <hr>
     <div class="log-list">
@@ -31,7 +31,7 @@
     </div>
     <hr>
     {% if owner %}
-        <button class="link" hx-post="/del/project/{{ project.slug }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Project</button>
+        <button class="link" hx-post="/del/{{ user.username }}/{{ project.slug }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Project</button>
         <p id="del-err"></p> <!-- should not be required, but doesn't hurt to have anyway, in case something goes horribly wrong -->
     {% endif %}
 {% endblock %}

@@ -46,7 +46,7 @@ function initCountdown() {
         const distance = targetTime - (now - startTime);
         if (distance < 0) {
             clearInterval(countdownInterval);
-            htmx.trigger(document.getElementById("nav-user"), "load");
+            htmx.trigger(document.getElementById("nav"), "load");
             return;
         }
         const days = Math.floor(distance / (1000 * 60 * 60 * 24));
@@ -120,32 +120,26 @@ function normalizeExtension(filename) {
 function getUploadPath() {
     let uploadPath = window.location.pathname;
     let parts = uploadPath.split('/');
-    // should be in either `/new/log/{projectSlug}` or `/edit/log/{projectSlug}/{logNum}`
-    if(parts.length < 3) { console.error("Was expecting parts to be at least length 3, but it's", parts.length); return "sillylittleerrorbecauseuriiswrong"; }
-    if(!parts[0] == "") { console.error("Was expecting parts[0] to be empty, but it's", parts[0]); return "sillylittleerrorbecauseuriiswrong"; }
-    if(parts[1] == "new" && parts[2] == "log") {
-        return `/new/media/${parts[3]}`;
-    } else if(parts[1] == "edit" && parts[2] == "log") {
-        return `/new/media/${parts[3]}/${parts[4]}`;
-    } else {
-        console.error(parts);
-        return "sillylittleerrorbecauseuriiswrong";
+    // should be in either `/u/{username}/{projectSlug}/new` or `/u/{username}/{projectSlug}/{logNum}/edit`
+    if(parts.length == 5) {
+        // should be `/u/{username}/{projectSlug}/new`
+        return uploadPath + "/media";
     }
+    // should be `/u/{username}/{projectSlug}/{logNum}/edit`
+    parts[5] = "media";
+    return parts.join('/');
 }
 function getDeletePath(filenameToDelete) {
     let uploadPath = window.location.pathname;
     let parts = uploadPath.split('/');
-    // should be in either `/new/log/{projectSlug}` or `/edit/log/{projectSlug}/{logNum}`
-    if(parts.length < 3) { console.error("Was expecting parts to be at least length 3, but it's", parts.length); return "sillylittleerrorbecauseuriiswrong"; }
-    if(!parts[0] == "") { console.error("Was expecting parts[0] to be empty, but it's", parts[0]); return "sillylittleerrorbecauseuriiswrong"; }
-    if(parts[1] == "new" && parts[2] == "log") {
-        return `/del/media/${parts[3]}/new/${filenameToDelete}`;
-    } else if(parts[1] == "edit" && parts[2] == "log") {
-        return `/del/media/${parts[3]}/${parts[4]}/${filenameToDelete}`;
-    } else {
-        console.error(parts);
-        return "sillylittleerrorbecauseuriiswrong";
+    // should be in either `/u/{username}/{projectSlug}/new` or `/u/{username}/{projectSlug}/{logNum}/edit`
+    parts[1] = "del";
+    if(parts.length == 6) {
+        // should be `/u/{username}/{projectSlug}/{logNum}/edit`
+        parts[5] = "media";
     }
+    parts.push(filenameToDelete);
+    return parts.join('/');
 }
 function getUploadedFilesNewListItemDesc(filename, filepath, filesize, error = null) {
     let sizestr;

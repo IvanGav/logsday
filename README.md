@@ -1,8 +1,8 @@
 # Logsday (rs)
 
-This is my version of the famous Logsday website (which is currently not publically available, which is why this project aims to be publically available).
+A humble recreation of the famous Logsday website. The original website was abandoned by its creator and is no longer developed. That's why this project aims to not be abandoned and be in development.
 
-You will be able to upload a devlog exactly once a week.
+You can upload a log once a day. You can see other people's logs. You can invite your friends to post their logs. You can even like other people's logs. Furthermore, you can look at the `TODO` list down below and contribute some of your very own bad code!
 
 ## Structure
 
@@ -39,17 +39,17 @@ You will be able to upload a devlog exactly once a week.
 
 ## Other
 
-- A bunch of research for this project was done with Gemini.
 - Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
 - You will not be able to private a project/log. You will be able to unlist it, but not private.
+- A bunch of research for this project was done with Gemini.
 
-## Comprehensive .md rendering rules
+## Markdown rendering rules
 
 - CommonMark spec
-  - server side uses `pulldown_cmark` with the following options enabled
-- Additional options:
+  - Server side uses `pulldown_cmark` with the following options enabled
+- Additional options
   - ~strikethrough~
-- Additional features:
+- Additional features
   - `![](name.ext)` represents a multimedia embed, depending on `.ext`. For supported extensions, refer to `filestuff::media_type`
 
 ## SQLite Tables

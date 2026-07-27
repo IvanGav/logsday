@@ -113,30 +113,30 @@ async fn main() {
     let app = Router::new()
         .route("/debug", get(get_debug))
         .route("/", get(landing))
+        .route("/nav", get(get_nav_bit))
         .route("/signup", get(get_signup).post(post_signup))
         .route("/login", get(get_login).post(post_login))
         .route("/logout", get(get_logout).post(post_logout))
         .route("/mdguide", get(get_mdguide))
         .route("/credits", get(get_credits))
         .route("/account", get(get_account))
-        .route("/account/change-displayname", post(post_change_displayname))
-        .route("/account/change-pfp", post(post_change_pfp))
-        .route("/new/project", get(get_new_project).post(post_new_project))
-        .route("/new/log/{project_slug}", get(get_new_log).post(post_new_log))
-        .route("/edit/log/{project_slug}/{log_number}", get(get_edit_log).post(post_edit_log))
-        .route("/new/media/{project_slug}", post(post_new_log_media_upload))
-        .route("/new/media/{project_slug}/{log_number}", post(post_log_media_upload))
-        .route("/del/user/{username}", post(post_del_user))
-        .route("/del/project/{project_slug}", post(post_del_project))
-        .route("/del/log/{project_slug}/{log_number}", post(post_del_log))
-        .route("/del/media/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
-        .route("/del/media/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
+        .route("/account/update/displayname", post(post_change_displayname))
+        .route("/account/update/pfp", post(post_change_pfp))
+        .route("/new-project", get(get_new_project).post(post_new_project))
+        .route("/u/{username}/{project_slug}/new", get(get_new_log).post(post_new_log))
+        .route("/u/{username}/{project_slug}/{log_number}/edit", get(get_edit_log).post(post_edit_log))
+        .route("/u/{username}/{project_slug}/new/media", post(post_new_log_media_upload))
+        .route("/u/{username}/{project_slug}/{log_number}/media", post(post_log_media_upload))
+        .route("/del/{username}", post(post_del_user))
+        .route("/del/{username}/{project_slug}", post(post_del_project))
+        .route("/del/{username}/{project_slug}/{log_number}", post(post_del_log))
+        .route("/del/{username}/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
+        .route("/del/{username}/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
         .route("/comment/{username}/{project_slug}/{log_number}", get(get_log_comments).post(post_log_comments))
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
         .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
-        .route("/bits/nav-user", get(get_nav_user_bit))
         .route("/like/{ty}/{uid}", get(get_like))
         .route("/like/{ty}/{uid}/{action}", post(post_like))
         .route("/favicon.ico", get(get_favicon))
@@ -512,7 +512,7 @@ async fn get_view_log(session: Session, State(state): State<AppState>, Path((use
     return Html(ViewLogTemplate{user, project, log, owner, authd}.render().unwrap()).into_response();
 }
 
-// Route /new/project
+// Route /new-project
 
 #[derive(Template)]
 #[template(path = "newproject.html")]
@@ -566,7 +566,7 @@ async fn post_new_project(State(state): State<AppState>, AuthdUser(user): AuthdU
     return generic_error().into_response();
 }
 
-// Route /new/log/{project_slug}
+// Route /u/{username}/{project_slug}/new
 
 #[derive(Template)]
 #[template(path = "newlog.html")]
@@ -584,12 +584,13 @@ struct UploadLogTemplate {
 impl UploadLogTemplate {
     fn new(user: User, project: Project, log_num: i64) -> UploadLogTemplate {
         let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_num)).unwrap_or("[]".into());
-        let upload_path = format!("/new/log/{}", &project.slug);
+        let upload_path = format!("/u/{}/{}/new", &user.username, &project.slug);
         UploadLogTemplate { user, project, title: "".into(), md: "".into(), upload_path, files_json_list, exists: false, log_num }
     }
 }
 
-async fn get_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
+async fn get_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    if user.username != username { return msg_html("Can only create log for yourself".into()).into_response(); }
     match newlog::newlog_num(&state, &user, &project_slug).await {
         NewlogResult::New(project, num) => { return Html(UploadLogTemplate::new(user, project, num).render().unwrap()).into_response(); },
         NewlogResult::NotLogsday => { return msg_html("Not your Logsday! Go touch some logs!".into()).into_response(); },
@@ -604,7 +605,8 @@ struct NewLogRequest {
     content: String,
 }
 
-async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(project_slug): Path<String>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+    if user.username != username { return "can't create log for a different user".into_response(); }
     if form.title.len() > 255 { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
     match newlog::newlog_num(&state, &user, &project_slug).await {
@@ -635,9 +637,10 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
     }
 }
 
-// Route /edit/log/{project_slug}/{log_number}
+// Route /u/{username}/{project_slug}/{log_number}/edit
 
-async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_num)): Path<(String, i64)>) -> impl IntoResponse {
+async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>) -> impl IntoResponse {
+    if user.username != username { return msg_html("Can only edit log for yourself".into()).into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_num).await, "Log does not exist");
     let md = get_or!(fs::read_to_string(format!("uploads/users/{}/{}/{}/index.md", &user.username, &project_slug, log_num)), "Cannot find log md file", err);
@@ -646,15 +649,16 @@ async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
         return msg_html("You can only edit logs you created today.".into()).into_response();
     }
     let files_json_list = serde_json::to_string(&newlog::get_existing_files(&user, &project, log_num)).unwrap_or("[]".into());
-    let upload_path = format!("/edit/log/{}/{}", &project.slug, log_num);
+    let upload_path = format!("/u/{}/{}/{}/edit", &user.username, &project.slug, log_num);
     return Html(UploadLogTemplate{user, project, title: log.title, md, upload_path, files_json_list, exists: true, log_num}.render().unwrap()).into_response();
 }
 
-async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+    if user.username != username { return "can't edit log for a different user".into_response(); }
     if form.title.len() > 255 { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
-    let log = get_or!(db::get_log_uuid_pslug_lslug(&state, user.uid, &project_slug, log_number).await, "Log does not exist");
-    let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
+    let log = get_or!(db::get_log_uuid_pslug_lslug(&state, user.uid, &project_slug, log_num).await, "Log does not exist");
+    let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_num);
     let log_content_path = format!("{}/{}", &log_path, "index.md");
     let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
     let html_render = filestuff::render_markdown_to_html(&form.content);
@@ -668,7 +672,7 @@ async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 
-// Route /del/user/{username}
+// Route /del/{username}
 
 async fn post_del_user(session: Session, AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
     if user.username != username { return "You can only delete account you're logged in to.".into_response(); }
@@ -683,9 +687,10 @@ async fn post_del_user(session: Session, AuthdUser(user): AuthdUser, State(state
     return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
 }
 
-// Route /del/project/{project_slug}
+// Route /del/{username}/{project_slug}
 
-async fn post_del_project(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(project_slug): Path<String>) -> impl IntoResponse {
+async fn post_del_project(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    if user.username != username { return "You can only delete your project.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     if !db::delete_project(&state, project.uid).await {
         return "Project does not exist or cannot be deleted".into_response();
@@ -697,9 +702,10 @@ async fn post_del_project(AuthdUser(user): AuthdUser, State(state): State<AppSta
     return hx_redirect("/u").into_response();
 }
 
-// Route /del/log/{project_slug}/{log_number}
+// Route /del/{username}/{project_slug}/{log_number}
 
-async fn post_del_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String,i64)>) -> impl IntoResponse {
+async fn post_del_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String,i64)>) -> impl IntoResponse {
+    if user.username != username { return "You can only delete your log.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, "Log does not exist");
     if !db::delete_log(&state, log.uid).await {
@@ -712,7 +718,7 @@ async fn post_del_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 
-// Route /new/media/{project_slug}
+// Route /u/{username}/{project_slug}/new/media
 
 #[derive(TryFromMultipart)]
 struct LogMediaUploadRequest {
@@ -720,16 +726,18 @@ struct LogMediaUploadRequest {
     file: FieldData<Bytes>,
 }
 
-async fn post_new_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(project_slug): Path<String>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+async fn post_new_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+    if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
     let newlog_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
     return handle_upload(&user, &project, newlog_number, &data).await.into_response();
 }
 
-// Route /new/media/{project_slug}/{log_number}
+// Route /u/{username}/{project_slug}/{log_number}/media
 
 /// return the json of the file data on success; return an error code that will be displayed with js on error
-async fn post_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number)): Path<(String, i64)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+async fn post_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+    if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
     let last_log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
     if log_number > last_log_number { return error_json("Can only upload to existing log").into_response(); }
@@ -755,9 +763,10 @@ async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &Type
     return newlog::file_response(&file_name, incoming_size, &log_file_web_path).into_response();
 }
 
-// Route /del/media/{project_slug}/new/{delete_filename}
+// Route /del/{username}/{project_slug}/new/{delete_filename}
 
-async fn delete_new_log_media(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, delete_filename)): Path<(String, String)>) -> impl IntoResponse {
+async fn delete_new_log_media(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, delete_filename)): Path<(String, String, String)>) -> impl IntoResponse {
+    if user.username != username { return error_json("Can only delete your files").into_response(); }
     if let None = db::get_project_by_slug(&state, user.uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
     let log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
     let file_name = delete_filename.as_ref();
@@ -774,9 +783,10 @@ async fn delete_new_log_media(AuthdUser(user): AuthdUser, State(state): State<Ap
     }
 }
 
-// Route /del/media/{project_slug}/{log_number}/{delete_filename}
+// Route /del/{username}/{project_slug}/{log_number}/{delete_filename}
 
-async fn delete_log_media(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((project_slug, log_number, delete_filename)): Path<(String, i64, String)>) -> impl IntoResponse {
+async fn delete_log_media(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number, delete_filename)): Path<(String, String, i64, String)>) -> impl IntoResponse {
+    if user.username != username { return error_json("Can only delete your files").into_response(); }
     if let None = db::get_project_by_slug(&state, user.uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
     if log_number != db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1 { return "Only allowed to delete for today's log".into_response(); }
     let file_name = delete_filename.as_ref();
@@ -793,7 +803,7 @@ async fn delete_log_media(AuthdUser(user): AuthdUser, State(state): State<AppSta
     }
 }
 
-// Route /bits/nav-user
+// Route /nav
 
 #[derive(Template)]
 #[template(path = "bits/nav_user.html")]
@@ -803,10 +813,10 @@ struct NavUserBitTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "bits/login.html")]
+#[template(path = "bits/nav_login.html")]
 struct LoginBitTemplate;
 
-async fn get_nav_user_bit(session: Session, State(state): State<AppState>) -> impl IntoResponse {
+async fn get_nav_bit(session: Session, State(state): State<AppState>) -> impl IntoResponse {
     let uid = session.get::<i64>("uid").await.unwrap();
     match uid {
         Some(uid) => {

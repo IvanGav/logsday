@@ -18,12 +18,12 @@
     </div>
     <hr>
     <p id="msg"></p>
-    <form hx-post="/account/change-displayname" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
+    <form hx-post="/account/update/displayname" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
         <label>New Displayname <input type="text" name="displayname" required></label>
         <button type="submit">Change Displayname</button>
     </form>
     <br>
-    <form hx-post="/account/change-pfp" hx-encoding="multipart/form-data" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
+    <form hx-post="/account/update/pfp" hx-encoding="multipart/form-data" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
         <label>New Profile Picture <input type="file" name="pfp" accept="image/*"></label>
         <button type="submit">Change Profile Picture</button>
     </form>
@@ -31,5 +31,5 @@
     <p id="err"></p>
     <p>To change username, your logsday or for any other questions, feel free to write an email (email address should be somewhere in <a href="/credits">credits</a>)</p>
     <br>
-    <button class="link" hx-post="/del/user/{{ user.username }}" style="color:red" hx-target="#err" hx-confirm="Are you sure?">Delete Account</button>
+    <button class="link" hx-post="/del/{{ user.username }}" style="color:red" hx-target="#err" hx-confirm="Are you sure?">Delete Account</button>
 {% endblock %}
