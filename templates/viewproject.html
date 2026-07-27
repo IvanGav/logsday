@@ -2,7 +2,15 @@
 
 {% block content %}
     <div style="display:flex;flex-direction:row;gap:1rem;">
-        <img src="/uploads/{{ user.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" class="view-project-thumb">
+        {% if owner %}
+            <!-- <form hx-post="/u/{{ user.username }}/{{ project.slug }}/update/thumbnail" hx-encoding="multipart/form-data" hx-target="#err"> -->
+            <form>
+                <img src="/uploads/{{ user.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" class="view-project-thumb clickable-image" onclick="this.nextElementSibling.click()">
+                <input type="file" name="thumb" accept="image/*" style="display: none;" hx-trigger="change" hx-post="/u/{{ user.username }}/{{ project.slug }}/update/thumbnail" hx-target="#err" hx-encoding="multipart/form-data">
+            </form>
+        {% else %}
+            <img src="/uploads/{{ user.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" class="view-project-thumb">
+        {% endif %}
         <div>
             <h2><a href="/u/{{ user.username }}">{{ user.displayname }}</a> / <span {% if owner %} class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/title" hx-swap="outerHTML" {% endif %}>{{ project.title }}</span></h2>
             <span>Created on: <span unix-utc="{{ project.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>

@@ -1050,8 +1050,6 @@ struct EditProjectDescriptionTemplate {
 async fn get_update_project_description(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
-    let field_name = "description".to_string();
-    let input_type = "textarea".to_string();
     return Html(EditProjectDescriptionTemplate{user, project}.render().unwrap()).into_response();
 }
 

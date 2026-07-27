@@ -339,3 +339,11 @@ form hr {
   text-decoration: underline;
   color: var(--text-muted);
 }
+
+.clickable-image {
+    cursor: pointer;
+}
+
+.clickable-image:hover {
+    filter: brightness(75%);
+}
