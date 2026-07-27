@@ -8,44 +8,10 @@ You will be able to upload a devlog exactly once a week.
 
 - To run the server, `cargo run` or `cargo run --release`
   - It should be available on `http://localhost:3000/`
-  - Entry point for the server is `src/main.rs`
-- `Askama`'s templates (`#[template(path = "index.html")]`) live in `./templates` directory
-  - Note that `Askama`'s templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
-- `Axum`'s Router uses `nest_service("/static", ServeDir::new("public"))` to map requests to `/static` to take from `./public` directory. That way, any requests to CSS or JS will take from there.
+- `Askama` templates (`#[template(path = "index.html")]`) live in `./templates` directory
+  - Note that `Askama` templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
 - The database is `./sqlite.db`. Needs to be created manually. You will also have to create all tables manually (listed in `SQLite Tables` section).
 - You have to have `nice` and `ffmpeg` cmd utilities instealled.
-
-## Paths
-
-- `/` => `templates/landing.html`
-- `/signup` => `templates/signup.html`
-- `/login` => `templates/login.html`
-- `/logout`
-- `/mdguide` => `templates/mdguide.html`
-- `/credits` => `templates/credits.html`
-- `/account` => `templates/account.html` - update displayname and profile picture
-- `/account/change-displayname` - POST to update displayname
-- `/account/change-pfp` - POST to update profile picture
-- `/u` => `templates/viewuser.html` - your profile; redirect to `/login` when not logged in
-- `/u/{username}` => `templates/viewuser.html` - user's profile + list of their projects; when your page, give extra options
-- `/u/{username}/{project_slug}` => `templates/viewproject.html` - project page + list of logs; when your project, give extra options
-- `/u/{username}/{project_slug}/{log_number}` => `templates/viewlog.html` - log page; when your log, give extra options
-- `/new/project` => `templates/newproject.html` - create a new project; redirect to `/login` when not logged in
-- `/new/log/{project_slug}` => `templates/newlog.html` - create a new log for the specified project; redirect to `/login` when not logged in
-- `/new/media/{project_slug}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; new log
-- `/new/media/{project_slug}/{log_number}` - return a json list of existing files on GET; download the file and return a json of the uploaded file on POST; specified log
-- `/edit/log/{project_slug}/{log_number}` - give a view for editing an existing log (only today's allowed)
-- `/del/user/{username}` - delete the user
-- `/del/project/{project_slug}` - delete the project; redirect to `/login` when not logged in
-- `/del/log/{project_slug}/{log_number}` - delete the log for the specified project; redirect to `/login` when not logged in
-- `/del/media/{project_slug}/new/{file_name}` - delete the given file from the newlog
-- `/del/media/{project_slug}/{log_number}/{file_name}` - delete the given file from the specified log
-- `/comment/{username}/{project_slug}/{log_number}` - get all comments of a log on GET; upload a comment on POST
-- `/uploads/{username}/{project_slug}/{log_number}/{filename}` => `uploads/{username}/{project_slug}/{log_number}/{filename}` - uploaded files for every log go here
-- `/static/*` => `static/*` - any static files that may be retrieved by the client (favicon, css/js, etc)
-- `/bits/nav-user` => `templates/bits/login.html`/`nav_user.html` - get the navbar login/signup or the logout/time until logsday; bits uris are htmx helpers
-- `/like/{ty}/{uid}` - get a bit for the amount of likes on whatever the `ty` is - `log`/`project`/`user`
-- `/like/{ty}/{uid}/{action}` - put a like/dislike/remove reaction for whatever the `ty` is - `log`/`project`/`user` (`action` is either of `like`/`dislike`/`unlike`)
 
 ## Tech Stack
 
@@ -71,11 +37,9 @@ You will be able to upload a devlog exactly once a week.
   - `axum_typed_multipart` for convenience, for now
   - `tower_governor` for traffic control; currently unused
 
-## Notes
+## Other
 
-- A lot of research for this project was done with Gemini. I don't think it's a big deal, but thought I'd put it here. It's just very quick and convenient.
-- `POST` responses should be either: Error message string (will be shown with htmx) or an `HX_Redirect` that redirects to the new page. Any exceptions will be noted in the code.
-  - Example Exception: `/new/media/...` should return a json with `{error}` or `{filename, filesize, filepath}`
+- A bunch of research for this project was done with Gemini.
 - Unix epoch starts on `Thu, Jan 1, 1970`. For an 8-day week, Unix epoch starts on `Mon, Jan 1, 1970`. In code, all weekdays are 0-indexed (Mon = 0, Tue = 1, etc).
 - You will not be able to private a project/log. You will be able to unlist it, but not private.
 
@@ -84,7 +48,6 @@ You will be able to upload a devlog exactly once a week.
 - CommonMark spec
   - server side uses `pulldown_cmark` with the following options enabled
 - Additional options:
-  - ENABLE_TABLES - idk the syntax for tables; may not be included later, if difficult to do
   - ~strikethrough~
 - Additional features:
   - `![](name.ext)` represents a multimedia embed, depending on `.ext`. For supported extensions, refer to `filestuff::media_type`
@@ -162,6 +125,22 @@ CREATE TABLE user_likes (
     PRIMARY KEY (user_uid, user_profile_uid),
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
     FOREIGN KEY (user_profile_uid) REFERENCES users(uid) ON DELETE CASCADE
+);
+
+CREATE TABLE user_follows (
+    user_uid INTEGER NOT NULL,
+    user_profile_uid INTEGER NOT NULL,
+    PRIMARY KEY (user_uid, user_profile_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (user_profile_uid) REFERENCES users(uid) ON DELETE CASCADE
+);
+
+CREATE TABLE project_follows (
+    user_uid INTEGER NOT NULL,
+    project_uid INTEGER NOT NULL,
+    PRIMARY KEY (user_uid, project_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
 ```
 
