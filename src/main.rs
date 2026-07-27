@@ -68,13 +68,11 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let db_pool = SqlitePool::connect("sqlite:sqlite.db")
-        .await
-        .expect("Could not connect to database. Please create `sqlite.db` database.");
-
+    let db_pool = SqlitePool::connect("sqlite:sqlite.db").await.expect("Could not connect to database. Please create `sqlite.db` database.");
+    println!("Running release: {}", if cfg!(debug_assertions) { false } else { true });
     let session_store = MemoryStore::default(); // store user sessions to memory for now
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false) // set to true later when have HTTPS
+        .with_secure(if cfg!(debug_assertions) { false } else { true })
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
     // prevent same IP from spamming requests; up to 250 requests in burst allowed, refreshing 1 every second
@@ -294,11 +292,19 @@ async fn get_debug() -> impl IntoResponse { Html(DebugTemplate.render().unwrap()
 #[template(path = "landing.html")]
 struct LandingTemplate {
     display_users: Vec<User>,
+    news: Option<Vec<(User, Project, LogEntry)>>,
 }
 
-async fn landing(State(state): State<AppState>) -> impl IntoResponse {
+async fn landing(session: Session, State(state): State<AppState>) -> impl IntoResponse {
+    let authd_uid = match AuthdUser::get_user(&session, &state).await { Some(u) => u.0.uid, None => 0 }; // no user will have uid of 0; ever
+    let news = if authd_uid == 0 { None } else {
+        let user = get_or!(db::get_user(&state, authd_uid).await, msg_html("Please log out and log back in".into()));
+        // db::get_news_for_user(&state, authd_uid).await
+        None
+    };
+
     let display_users = db::get_all_users(&state).await;
-    let render = LandingTemplate { display_users }.render();
+    let render = LandingTemplate { display_users, news }.render();
     if let Ok(render) = render {
         return Html(render).into_response();
     }

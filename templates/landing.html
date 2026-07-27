@@ -2,6 +2,14 @@
 
 {% block content %}
     <h2>Logsday!!!</h2>
+    {% if let Some(news) = news %}
+        <hr>
+        <div class="flex-col">
+            {% for (u, p, log) in news %}
+                <div><a href="/u/{{ u.username }}">{{ u.displayname }}</a> / <a href="/u/{{ u.username }}/{{ p.slug }}">{{ p.title }}</a> / <a href="/u/{{ u.username }}/{{ p.slug }}/{{ log.number }}">Log {{ log.number }}: {{ log.title }}</a><span class="max-fill"></span><span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></div>
+            {% endfor %}
+        </div>
+    {% endif %}
     <hr>
     Explore users:
     {% for u in display_users %}
