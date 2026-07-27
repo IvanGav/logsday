@@ -116,6 +116,33 @@ pub async fn update_user_displayname(state: &AppState, user_uid: i64, new_displa
     return true;
 }
 
+pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query("UPDATE logs SET title = ? WHERE uid = ?;")
+        .bind(title)
+        .bind(log_uid)
+        .execute(&state.db)
+        .await?;
+    return Ok(());
+}
+
+pub async fn update_project_title(state: &AppState, project_uid: i64, new_title: &str) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query("UPDATE projects SET title = ? WHERE uid = ?;")
+        .bind(new_title)
+        .bind(project_uid)
+        .execute(&state.db)
+        .await?;
+    return Ok(());
+}
+
+pub async fn update_project_description(state: &AppState, project_uid: i64, new_description: &str) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query("UPDATE projects SET description = ? WHERE uid = ?;")
+        .bind(new_description)
+        .bind(project_uid)
+        .execute(&state.db)
+        .await?;
+    return Ok(());
+}
+
 // Getters for `users` table
 
 pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
@@ -254,15 +281,6 @@ pub async fn _get_last_project_log(state: &AppState, project_uid: i64) -> Option
         println!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
-}
-
-pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(), sqlx::Error> {
-    let _ = sqlx::query("UPDATE logs SET title = ? WHERE uid = ?;")
-        .bind(title)
-        .bind(log_uid)
-        .execute(&state.db)
-        .await?;
-    return Ok(());
 }
 
 pub async fn get_comments_for_log(state: &AppState, log_uid: i64,) -> Vec<Comment> {

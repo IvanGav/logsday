@@ -4,12 +4,13 @@
     <div style="display:flex;flex-direction:row;gap:1rem;">
         <img src="/uploads/{{ user.username }}/{{ project.slug }}/thumb.webp" alt="project thumbnail" class="view-project-thumb">
         <div>
-            <h2><a href="/u/{{ user.username }}">{{ user.displayname }}</a> / {{ project.title }}</h2>
+            <h2><a href="/u/{{ user.username }}">{{ user.displayname }}</a> / <span {% if owner %} class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/title" hx-swap="outerHTML" {% endif %}>{{ project.title }}</span></h2>
             <span>Created on: <span unix-utc="{{ project.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
             <div hx-trigger="load, refreshLikes from:body" hx-get="/like/project/{{ project.uid }}"></div>
         </div>
     </div>
-    <div>{{ project.description }}</div>
+    <p id="err"></p>
+    <div {% if owner %} class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/description" hx-swap="outerHTML" {% endif %}><p style="white-space: pre-wrap;">{{ project.description }}</p></div>
     {% if owner %}
         <br>
         <a href="/u/{{ user.username }}/{{ project.slug }}/new">New Log</a>
@@ -31,7 +32,6 @@
     </div>
     <hr>
     {% if owner %}
-        <button class="link" hx-post="/del/{{ user.username }}/{{ project.slug }}" style="color:red" hx-target="#del-err" hx-confirm="Are you sure?">Delete This Project</button>
-        <p id="del-err"></p> <!-- should not be required, but doesn't hurt to have anyway, in case something goes horribly wrong -->
+        <button class="link" hx-post="/del/{{ user.username }}/{{ project.slug }}" style="color:red" hx-target="#err" hx-confirm="Are you sure?">Delete This Project</button>
     {% endif %}
 {% endblock %}

@@ -328,3 +328,14 @@ form hr {
     margin-bottom: 15px;
     background-color: var(--primary-bg);
 }
+
+/* to edit fields */
+
+.editable-field {
+  cursor: pointer;
+}
+
+.editable-field:hover {
+  text-decoration: underline;
+  color: var(--text-muted);
+}

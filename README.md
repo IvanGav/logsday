@@ -145,7 +145,7 @@ CREATE TABLE project_follows (
 ```
 
 ## TODO list (no particular order)
-- Let edit project info (title, thumbnail)
+- Let edit project thumbnail
 - Improve comments
 	- (maybe) Let delete comments
 	- (maybe) Let edit comments
@@ -159,11 +159,10 @@ CREATE TABLE project_follows (
 - Make/follow groups
 - Make discover page
 - Add "report" button
-- Refactor the uri paths to be better
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
-- Create sqlite tables if they don't yet exist
-- Make phone compatible
+- Auto create sqlite tables if they don't yet exist
+- Make phone layout compatible
 - Allow to unlist projects
 - Fix Bugs:
   - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

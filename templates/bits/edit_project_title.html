@@ -1,0 +1,6 @@
+<span>
+  <form hx-post="/u/{{ user.username }}/{{ project.slug }}/update/title" hx-target="#err" class="flex-row" style="display: inline-flex;">
+    <input type="text" name="title" value="{{ project.title }}" required autofocus>
+    <button type="submit">Submit</button>
+  </form>
+</span>

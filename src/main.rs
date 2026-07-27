@@ -56,6 +56,10 @@ pub fn msg_html(message: String) -> Html<String> {
     Html(MessageTemplate { message }.render().unwrap())
 }
 
+pub fn hx_refresh() -> impl IntoResponse {
+    return (StatusCode::OK, [("HX-Refresh", "true")], "");
+}
+
 #[derive(Clone)]
 struct AppState {
     db: SqlitePool,
@@ -120,9 +124,12 @@ async fn main() {
         .route("/mdguide", get(get_mdguide))
         .route("/credits", get(get_credits))
         .route("/account", get(get_account))
-        .route("/account/update/displayname", post(post_change_displayname))
-        .route("/account/update/pfp", post(post_change_pfp))
+        .route("/account/update/displayname", post(post_update_displayname))
+        .route("/account/update/pfp", post(post_update_pfp))
         .route("/new-project", get(get_new_project).post(post_new_project))
+        .route("/u/{username}/{project_slug}/update/thumbnail", post(post_update_project_thumbnail))
+        .route("/u/{username}/{project_slug}/update/title", get(get_update_project_title).post(post_update_project_title))
+        .route("/u/{username}/{project_slug}/update/description", get(get_update_project_description).post(post_update_project_description))
         .route("/u/{username}/{project_slug}/new", get(get_new_log).post(post_new_log))
         .route("/u/{username}/{project_slug}/{log_number}/edit", get(get_edit_log).post(post_edit_log))
         .route("/u/{username}/{project_slug}/new/media", post(post_new_log_media_upload))
@@ -895,7 +902,7 @@ struct ChangeDisplaynameSubmission {
     displayname: String,
 }
 
-async fn post_change_displayname(AuthdUser(user): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
+async fn post_update_displayname(AuthdUser(user): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
     if !db::update_user_displayname(&state, user.uid, &form.displayname).await {
         return "Database failure".into_response();
     }
@@ -908,7 +915,7 @@ struct UpdatePfpRequest {
     pfp: FieldData<Bytes>,
 }
 
-async fn post_change_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<UpdatePfpRequest>) -> impl IntoResponse {
+async fn post_update_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<UpdatePfpRequest>) -> impl IntoResponse {
     if data.pfp.contents.len() == 0 { return "You did not upload a file.".into_response(); }
     let content_type = data.pfp.metadata.content_type.as_ref().unwrap();
     if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported profile picture file format".into_response(); }
@@ -1002,6 +1009,87 @@ async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Pa
         _ => { return "Invalid type".into_response(); }
     }
     return (StatusCode::OK, [("HX-Trigger", "refreshLikes")], "").into_response();
+}
+
+// Route /u/{username}/{project_slug}/update/title
+
+#[derive(Template)]
+#[template(path = "bits/edit_project_title.html")]
+struct EditProjectTitleTemplate {
+    user: User,
+    project: Project,
+}
+
+async fn get_update_project_title(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    if user.username != username { return "Can only update your own projects.".into_response(); }
+    let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
+    return Html(EditProjectTitleTemplate{user, project}.render().unwrap()).into_response();
+}
+
+#[derive(Deserialize, Debug)]
+struct FormUpdateTitle {
+    title: String,
+}
+
+async fn post_update_project_title(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateTitle>) -> impl IntoResponse {
+    if user.username != username { return "Can only update your own projects.".into_response(); }
+    let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
+    if let Err(e) = db::update_project_title(&state, project.uid, &form.title).await { println!("{e}"); return "Database error".into_response(); }
+    return hx_refresh().into_response();
+}
+
+// Route /u/{username}/{project_slug}/update/description
+
+#[derive(Template)]
+#[template(path = "bits/edit_project_description.html")]
+struct EditProjectDescriptionTemplate {
+    user: User,
+    project: Project,
+}
+
+async fn get_update_project_description(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    if user.username != username { return "Can only update your own projects.".into_response(); }
+    let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
+    let field_name = "description".to_string();
+    let input_type = "textarea".to_string();
+    return Html(EditProjectDescriptionTemplate{user, project}.render().unwrap()).into_response();
+}
+
+#[derive(Deserialize, Debug)]
+struct FormUpdateDescription {
+    description: String,
+}
+
+async fn post_update_project_description(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateDescription>) -> impl IntoResponse {
+    if user.username != username { return "Can only update your own projects.".into_response(); }
+    let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
+    if let Err(e) = db::update_project_description(&state, project.uid, &form.description).await { println!("{e}"); return "Database error".into_response(); }
+    return hx_refresh().into_response();
+}
+
+// Route /u/{username}/{project_slug}/update/thumbnail
+
+#[derive(TryFromMultipart)]
+struct FormUpdateThumbnail {
+    #[form_data(field_name = "thumb", limit = "100MB")]
+    thumb: FieldData<Bytes>,
+}
+
+async fn post_update_project_thumbnail(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<FormUpdateThumbnail>) -> impl IntoResponse {
+    if user.username != username { return "Can only update your own projects.".into_response(); }
+    if data.thumb.contents.len() == 0 { return "You did not upload a file.".into_response(); }
+    if db::get_project_by_slug(&state, user.uid, &project_slug).await.is_none() { return "Project does not exist".into_response(); }
+    let content_type = data.thumb.metadata.content_type.as_ref().unwrap();
+    if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
+    let project_path = format!("uploads/users/{}/{}", &user.username, &project_slug);
+    let thumb_path = format!("{}/{}", &project_path, "thumb.webp");
+
+    let webp_img = get_or!(filestuff::convert_to_webp(&data.thumb.contents), "Could not convert to webp");
+    if let Ok(_) = fs::write(thumb_path, &webp_img) {
+        return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
+    } else {
+        return "Could not write file".into_response();
+    }
 }
 
 fn _time<F: Fn() -> T, T>(f: F) -> T {
