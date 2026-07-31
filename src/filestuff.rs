@@ -222,17 +222,6 @@ pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P, state: &AppState
             }
         }
     }
-    for file in linked_files {
-        if media_type(&file) == MediaType::Video {
-            // put a job to compress
-            println!("COMPRESS QUEUING {}", dir.join(&file).to_str().unwrap());
-            let job = CompressVideoJob { path: dir.join(&file).to_string_lossy().into_owned(), created_on: SystemTime::now() };
-            match state.tx.send(job).await {
-                Ok(_) => {}
-                Err(_) => { println!("Could not queue a video to compress: {}", file); }
-            }
-        }
-    }
     Ok(())
 }
 
@@ -276,14 +265,19 @@ pub async fn compress_video(CompressVideoJob{path, created_on}: CompressVideoJob
             if let Ok(metadata) = fs::metadata(&path) {
                 if let Ok(modified) = metadata.modified() {
                     if modified <= created_on {
-                        let _ = fs::rename(tmp_file, &path);
-                        println!("COMPRESS SUCCESS: {}", &path);
-                        return;
+                        // check that the new size is smaller
+                        if fs::metadata(&tmp_file).unwrap().len() < metadata.len() {
+                            let _ = fs::rename(tmp_file, &path);
+                            println!("COMPRESS SUCCESS: {}", &path);
+                            return;
+                        } else {
+                            println!("original len = {}, compressed len = {}", metadata.len(), fs::metadata(&tmp_file).unwrap().len());
+                        }
                     }
                 }
             }
             let _ = tokio::fs::remove_file(tmp_file).await;
-            println!("COMPRESS WARN: compressed success, but original file was deleted or replaced: {}", path);
+            println!("COMPRESS WARN: compressed success, but original file was deleted or replaced, or the compressed file is larger: {}", path);
         }
         Err(e) => { println!("COMPRESS FAIL: {}", e); }
     }

@@ -74,7 +74,7 @@ CREATE TABLE projects (
     description TEXT,
     created_on INTEGER NOT NULL, -- unix timestamp
 
-    UNIQUE(user_uid, slug)
+    UNIQUE(user_uid, slug),
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 
@@ -85,7 +85,7 @@ CREATE TABLE logs (
     number INTEGER NOT NULL, -- this log's sequential number in the project
     created_on INTEGER NOT NULL, -- unix timestamp
 
-    UNIQUE(project_uid, number)
+    UNIQUE(project_uid, number),
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
 
@@ -96,7 +96,7 @@ CREATE TABLE log_comments (
     text TEXT NOT NULL,
     created_on INTEGER NOT NULL, -- unix timestamp
 
-    FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
+    FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE,
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );
 

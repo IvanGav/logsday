@@ -498,3 +498,19 @@ pub async fn set_user_like(state: &AppState, user_uid: i64, user_profile_uid: i6
     }
     Ok(())
 }
+
+/* other */
+
+pub struct News {
+    pub username: String,
+    pub displayname: String,
+    pub project_title: String,
+    pub project_slug: String,
+    pub log_title: String,
+    pub log_number: i64,
+    pub log_created_on: i64,
+}
+
+pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
+    return vec![];
+}

@@ -5,7 +5,7 @@ use axum::{
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
 // use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor};
-use std::{collections::HashMap, fs, net::SocketAddr};
+use std::{collections::HashMap, fs, net::SocketAddr, time::SystemTime};
 use tower_http::services::ServeDir;
 use sqlx::sqlite::SqlitePool;
 use serde::Deserialize;
@@ -82,9 +82,7 @@ async fn main() {
     //     .burst_size(250)
     //     .finish()
     //     .expect("Could not create governor_config");
-
     // let governor_limiter = governor_config.limiter().clone();
-
     // every minute, clean up old ips; prevents them from being stored indefinitely
     // tokio::spawn(async move {
     //     loop {
@@ -292,16 +290,12 @@ async fn get_debug() -> impl IntoResponse { Html(DebugTemplate.render().unwrap()
 #[template(path = "landing.html")]
 struct LandingTemplate {
     display_users: Vec<User>,
-    news: Option<Vec<(User, Project, LogEntry)>>,
+    news: Option<Vec<db::News>>,
 }
 
 async fn landing(session: Session, State(state): State<AppState>) -> impl IntoResponse {
     let authd_uid = match AuthdUser::get_user(&session, &state).await { Some(u) => u.0.uid, None => 0 }; // no user will have uid of 0; ever
-    let news = if authd_uid == 0 { None } else {
-        let user = get_or!(db::get_user(&state, authd_uid).await, msg_html("Please log out and log back in".into()));
-        // db::get_news_for_user(&state, authd_uid).await
-        None
-    };
+    let news = if authd_uid == 0 { None } else { Some(db::get_news_for_user(&state, authd_uid).await) };
 
     let display_users = db::get_all_users(&state).await;
     let render = LandingTemplate { display_users, news }.render();
@@ -743,7 +737,7 @@ async fn post_new_log_media_upload(AuthdUser(user): AuthdUser, State(state): Sta
     if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
     let newlog_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
-    return handle_upload(&user, &project, newlog_number, &data).await.into_response();
+    return handle_upload(&user, &project, newlog_number, &data, &state).await.into_response();
 }
 
 // Route /u/{username}/{project_slug}/{log_number}/media
@@ -754,10 +748,10 @@ async fn post_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<A
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
     let last_log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
     if log_number > last_log_number { return error_json("Can only upload to existing log").into_response(); }
-    return handle_upload(&user, &project, log_number, &data).await.into_response();
+    return handle_upload(&user, &project, log_number, &data, &state).await.into_response();
 }
 
-async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &TypedMultipart<LogMediaUploadRequest>, state: &AppState) -> impl IntoResponse {
     if !user.admin && !week::is_logsday(user.week_len, user.logsday_weekday) { return error_json("Not logsday").into_response(); }
     let content_type = get_or!(&data.file.metadata.content_type, (StatusCode::INTERNAL_SERVER_ERROR, error_json("Could not get file type")));
     if filestuff::mime_media_type(&content_type) == MediaType::Unsupported { return (StatusCode::BAD_REQUEST, error_json("Unsupported file type")).into_response(); }
@@ -772,7 +766,16 @@ async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &Type
     let current_size = filestuff::get_directory_size_bytes(&log_path).await.unwrap_or(0);
     let incoming_size = data.file.contents.len() as u64;
     if current_size + incoming_size > 5 * 1024 * 1024 * 1024 { return (StatusCode::INSUFFICIENT_STORAGE, error_json("Cannot upload more than 5GB per log")).into_response(); }
-    if let Err(e) = fs::write(log_file_path, &data.file.contents) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't write file")).into_response(); }
+    if let Err(e) = fs::write(&log_file_path, &data.file.contents) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't write file")).into_response(); }
+    if filestuff::media_type(&file_name) == MediaType::Video {
+        // put a job to compress
+        println!("COMPRESS QUEUING {}", &log_file_path);
+        let job = filestuff::CompressVideoJob { path: log_file_path.clone(), created_on: SystemTime::now() };
+        match state.tx.send(job).await {
+            Ok(_) => {}
+            Err(_) => { println!("Could not queue a video to compress: {}", &log_file_path); }
+        }
+    }
     return newlog::file_response(&file_name, incoming_size, &log_file_web_path).into_response();
 }
 
