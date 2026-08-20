@@ -33,6 +33,58 @@ marked.use({
     }
 });
 
+/*
+    These functions imitate `week.rs` functions, but work in local time
+    All front end timestamps are displayed in local time
+    Server will accept that "today" may be +-12 hours, due to time zones
+*/
+
+const DAY_MSECS = 24 * 60 * 60 * 1000;
+const WEEKDAY_OFFSET_7_DAY_WEEK = 3; // Unix epoch started on Thursday; weekdays are 0-indexed
+const WEEKDAY_OFFSET_8_DAY_WEEK = 0; // Unix epoch started on Monday in an 8-day week; weekdays are 0-indexed
+
+// function now() {
+//     return new Date().getTime();
+// }
+
+// function today() {
+//     let today = new Date();
+//     today.setHours(0,0,0,0);
+//     return today.getTime();
+// }
+
+// function day_num() {
+//     return now() / DAY_MSECS;
+// }
+
+// function weekday(week_len) {
+//     let offset = WEEKDAY_OFFSET_7_DAY_WEEK;
+//     if(week_len == 8) { offset = WEEKDAY_OFFSET_8_DAY_WEEK; }
+//     return (day_num() + offset) % week_len;
+// }
+
+// function is_logsday(week_len, logsday_weekday) {
+//     return weekday(week_len) == logsday_weekday;
+// }
+
+// function time_left_today() {
+//     return today() + DAY_MSECS - now();
+// }
+
+// function time_until_next_logsday(week_len, logsday_weekday) {
+//     let days = logsday_weekday - weekday(week_len);
+//     if (days < 0) { days += week_len; }
+//     return days * DAY_SECS - (now() - today());
+// }
+
+// function days_since(time) {
+//     const today = day_num();
+//     const given_day = time / DAY_MSECS;
+//     return today - given_day;
+// }
+
+/* other stuff */
+
 function initCountdown() {
     if (countdownInterval) {
         clearInterval(countdownInterval);

@@ -9,7 +9,7 @@ pub async fn create_log(state: &AppState, project_id: i64, title: &str, number: 
         .bind(project_id)
         .bind(title)
         .bind(number)
-        .bind(week::today())
+        .bind(week::now())
         .execute(&state.db)
         .await?;
     return Ok(result.last_insert_rowid());
@@ -24,7 +24,7 @@ pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &
         .bind(title)
         .bind(slug)
         .bind(desc)
-        .bind(week::today())
+        .bind(week::now())
         .execute(&state.db)
         .await?;
     return Ok(result.last_insert_rowid());
@@ -37,11 +37,11 @@ pub async fn create_user(state: &AppState, username: &str, displayname: &str, pa
     )
         .bind(username)
         .bind(displayname)
-        .bind(password) // plaintext password go brrrr
+        .bind(password)
         .bind(week_len)
         .bind(logsday_weekday)
-        .bind(week::today())
-        .bind(week::today())
+        .bind(week::now())
+        .bind(week::now())
         .execute(&state.db)
         .await?;
     return Ok(result.last_insert_rowid());
@@ -53,7 +53,7 @@ pub async fn create_comment_for_log(state: &AppState, log_uid: i64, user_uid: i6
     )
         .bind(log_uid)
         .bind(user_uid)
-        .bind(text) // plaintext password go brrrr
+        .bind(text)
         .bind(week::now())
         .execute(&state.db)
         .await?;
@@ -514,3 +514,60 @@ pub struct News {
 pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
     return vec![];
 }
+
+/*
+pub async fn get_news_for_user(db: &SqlitePool, user_uid: i64) -> Result<Vec<News>, sqlx::Error> {
+    let news = sqlx::query_as!(
+        News,
+        r#"
+        SELECT
+            u.username,
+            u.displayname,
+            p.title AS project_title,
+            p.slug AS project_slug,
+            l.title AS log_title,
+            l.number AS log_number,
+            l.created_on AS log_created_on
+        FROM user_follows uf
+        JOIN projects p ON p.user_uid = uf.user_profile_uid
+        JOIN users u ON u.uid = p.user_uid
+        JOIN logs l ON l.project_uid = p.uid
+        WHERE uf.user_uid = ?1
+        ORDER BY l.created_on DESC
+        LIMIT 10
+        "#,
+        user_uid
+    )
+    .fetch_all(db)
+    .await?;
+
+    Ok(news)
+}
+
+
+SELECT
+    u.username,
+    u.displayname,
+    p.title AS project_title,
+    p.slug AS project_slug,
+    l.title AS log_title,
+    l.number AS log_number,
+    l.created_on AS log_created_on
+FROM logs l
+JOIN projects p ON l.project_uid = p.uid
+JOIN users u ON p.user_uid = u.uid
+WHERE p.user_uid IN (
+    -- Users you follow
+    SELECT user_profile_uid 
+    FROM user_follows 
+    WHERE user_uid = ?1
+) 
+OR p.uid IN (
+    -- Specific projects you follow
+    SELECT project_uid 
+    FROM project_follows 
+    WHERE user_uid = ?1
+)
+ORDER BY l.created_on DESC
+LIMIT 10;
+*/

@@ -218,7 +218,7 @@ struct LogEntry {
 impl LogEntry {
     /// note, does not check if user is admin
     pub fn can_edit(&self) -> bool {
-        return week::days_since(self.created_on) == 0; // can edit if uploaded today
+        return week::days_since(self.created_on) < 2; // can edit if uploaded today
     }
 }
 
@@ -230,7 +230,7 @@ struct Comment {
     created_on: week::UnixTime,
 }
 
-struct AuthdUser(User);
+struct AuthdUser(User, i64);
 
 impl<S> FromRequestParts<S> for AuthdUser
 where
@@ -249,8 +249,9 @@ where
 impl AuthdUser {
     async fn get_user(session: &Session, state: &AppState) -> Option<AuthdUser> {
         let uid = session.get::<i64>("uid").await.unwrap_or(None)?;
+        let tz = session.get::<i64>("tz").await.unwrap_or(None)?;
         match db::get_user(state, uid).await {
-            Some(user) => Some(AuthdUser(user)),
+            Some(user) => Some(AuthdUser(user, tz)),
             None => {
                 let _ = session.clear().await; 
                 return None;
@@ -336,6 +337,7 @@ struct SignupSubmission {
     password: String,
     week_len: i64,
     logsday_weekday: i64,
+    tz: i64,
 }
 
 async fn post_signup(
@@ -366,6 +368,7 @@ async fn post_signup(
                 if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
                 let uid = u.unwrap().uid;
                 session.insert("uid", uid).await.unwrap();
+                session.insert("tz", week::ensure_tz_valid(form.tz)).await.unwrap();
                 return hx_redirect("/u").into_response();
             } else {
                 return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create user directory").into_response();
@@ -401,6 +404,7 @@ async fn get_login() -> impl IntoResponse {
 struct LoginSubmission {
     username: String,
     password: String,
+    tz: i64,
 }
 
 async fn post_login(
@@ -412,6 +416,7 @@ async fn post_login(
     if let Some(u) = user {
         if password::verify(&form.password, &u.password) {
             session.insert("uid", u.uid).await.unwrap();
+            session.insert("tz", week::ensure_tz_valid(form.tz)).await.unwrap();
             return hx_redirect("/u").into_response();
         }
     }
@@ -421,14 +426,14 @@ async fn post_login(
 // Route /logout
 
 async fn get_logout(session: Session) -> impl IntoResponse {
-    match session.remove::<i64>("uid").await {
-        Ok(_) => { return Redirect::to("/").into_response(); }
-        Err(e) => { println!("{}", e); return msg_html("You're not logged in.".into()).into_response(); }
-    }
+    let _ = session.remove::<i64>("uid").await;
+    let _ = session.remove::<i64>("tz").await;
+    return Redirect::to("/").into_response();
 }
 
 async fn post_logout(session: Session) -> impl IntoResponse {
     let _ = session.remove::<i64>("uid").await;
+    let _ = session.remove::<i64>("tz").await;
     return (StatusCode::OK, [("HX-Refresh", "true")], "");
 }
 
@@ -462,7 +467,7 @@ struct ViewUserTemplate {
     owner: bool,
 }
 
-async fn get_view_self(AuthdUser(user): AuthdUser, State(state): State<AppState>) -> impl IntoResponse {
+async fn get_view_self(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>) -> impl IntoResponse {
     let projects = db::get_user_projects(&state, user.uid).await;
     return Html(ViewUserTemplate{user, projects, owner: true}.render().unwrap()).into_response();
 }
@@ -525,7 +530,7 @@ async fn get_view_log(session: Session, State(state): State<AppState>, Path((use
 #[template(path = "newproject.html")]
 struct NewProjectTemplate;
 
-async fn get_new_project(AuthdUser(_): AuthdUser) -> impl IntoResponse {
+async fn get_new_project(AuthdUser(_, _): AuthdUser) -> impl IntoResponse {
     return Html(NewProjectTemplate.render().unwrap()).into_response();
 }
 
@@ -541,7 +546,7 @@ struct NewProjectRequest {
     thumbnail: FieldData<Bytes>,
 }
 
-async fn post_new_project(State(state): State<AppState>, AuthdUser(user): AuthdUser, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
+async fn post_new_project(State(state): State<AppState>, AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
     let pslug: &str = if data.slug.len() == 0 { &slug::slug_from(&data.title) } else { &data.slug };
 
     if data.title.len() > 255 || pslug.len() > 255 { return "title or slug too long".into_response(); }
@@ -596,9 +601,9 @@ impl UploadLogTemplate {
     }
 }
 
-async fn get_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+async fn get_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     if user.username != username { return msg_html("Can only create log for yourself".into()).into_response(); }
-    match newlog::newlog_num(&state, &user, &project_slug).await {
+    match newlog::newlog_num(&state, &user, &project_slug, tz).await {
         NewlogResult::New(project, num) => { return Html(UploadLogTemplate::new(user, project, num).render().unwrap()).into_response(); },
         NewlogResult::NotLogsday => { return msg_html("Not your Logsday! Go touch some logs!".into()).into_response(); },
         NewlogResult::AlreadyUploaded => { return msg_html("You've already uploaded a log this week! Go touch some logs and come back next week!".into()).into_response(); },
@@ -612,11 +617,11 @@ struct NewLogRequest {
     content: String,
 }
 
-async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
     if user.username != username { return "can't create log for a different user".into_response(); }
     if form.title.len() > 255 { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
-    match newlog::newlog_num(&state, &user, &project_slug).await {
+    match newlog::newlog_num(&state, &user, &project_slug, tz).await {
         NewlogResult::New(project, log_number) => {
             let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
             let log_content_path = format!("{}/{}", &log_path, "index.md");
@@ -646,7 +651,7 @@ async fn post_new_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
 
 // Route /u/{username}/{project_slug}/{log_number}/edit
 
-async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>) -> impl IntoResponse {
+async fn get_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>) -> impl IntoResponse {
     if user.username != username { return msg_html("Can only edit log for yourself".into()).into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_num).await, "Log does not exist");
@@ -660,7 +665,7 @@ async fn get_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>,
     return Html(UploadLogTemplate{user, project, title: log.title, md, upload_path, files_json_list, exists: true, log_num}.render().unwrap()).into_response();
 }
 
-async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
+async fn post_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
     if user.username != username { return "can't edit log for a different user".into_response(); }
     if form.title.len() > 255 { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
@@ -681,7 +686,7 @@ async fn post_edit_log(AuthdUser(user): AuthdUser, State(state): State<AppState>
 
 // Route /del/{username}
 
-async fn post_del_user(session: Session, AuthdUser(user): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
+async fn post_del_user(session: Session, AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
     if user.username != username { return "You can only delete account you're logged in to.".into_response(); }
     if !db::delete_user(&state, user.uid).await {
         return "Could not delete user".into_response();
@@ -696,7 +701,7 @@ async fn post_del_user(session: Session, AuthdUser(user): AuthdUser, State(state
 
 // Route /del/{username}/{project_slug}
 
-async fn post_del_project(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+async fn post_del_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     if user.username != username { return "You can only delete your project.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     if !db::delete_project(&state, project.uid).await {
@@ -711,7 +716,7 @@ async fn post_del_project(AuthdUser(user): AuthdUser, State(state): State<AppSta
 
 // Route /del/{username}/{project_slug}/{log_number}
 
-async fn post_del_log(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String,i64)>) -> impl IntoResponse {
+async fn post_del_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String,i64)>) -> impl IntoResponse {
     if user.username != username { return "You can only delete your log.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, "Log does not exist");
@@ -733,26 +738,26 @@ struct LogMediaUploadRequest {
     file: FieldData<Bytes>,
 }
 
-async fn post_new_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+async fn post_new_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
     if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
     let newlog_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
-    return handle_upload(&user, &project, newlog_number, &data, &state).await.into_response();
+    return handle_upload(&user, tz, &project, newlog_number, &data, &state).await.into_response();
 }
 
 // Route /u/{username}/{project_slug}/{log_number}/media
 
 /// return the json of the file data on success; return an error code that will be displayed with js on error
-async fn post_log_media_upload(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
+async fn post_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
     if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
     let last_log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
     if log_number > last_log_number { return error_json("Can only upload to existing log").into_response(); }
-    return handle_upload(&user, &project, log_number, &data, &state).await.into_response();
+    return handle_upload(&user, tz, &project, log_number, &data, &state).await.into_response();
 }
 
-async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &TypedMultipart<LogMediaUploadRequest>, state: &AppState) -> impl IntoResponse {
-    if !user.admin && !week::is_logsday(user.week_len, user.logsday_weekday) { return error_json("Not logsday").into_response(); }
+async fn handle_upload(user: &User, tz: i64, project: &Project, log_num: i64, data: &TypedMultipart<LogMediaUploadRequest>, state: &AppState) -> impl IntoResponse {
+    if !user.admin && !week::is_logsday_tz(user.week_len, user.logsday_weekday, tz) { return error_json("Not logsday").into_response(); }
     let content_type = get_or!(&data.file.metadata.content_type, (StatusCode::INTERNAL_SERVER_ERROR, error_json("Could not get file type")));
     if filestuff::mime_media_type(&content_type) == MediaType::Unsupported { return (StatusCode::BAD_REQUEST, error_json("Unsupported file type")).into_response(); }
     let file_name = get_or!(data.file.metadata.file_name.as_ref(), (StatusCode::BAD_REQUEST, error_json("Could not get file name")));
@@ -781,7 +786,7 @@ async fn handle_upload(user: &User, project: &Project, log_num: i64, data: &Type
 
 // Route /del/{username}/{project_slug}/new/{delete_filename}
 
-async fn delete_new_log_media(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, delete_filename)): Path<(String, String, String)>) -> impl IntoResponse {
+async fn delete_new_log_media(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, delete_filename)): Path<(String, String, String)>) -> impl IntoResponse {
     if user.username != username { return error_json("Can only delete your files").into_response(); }
     if let None = db::get_project_by_slug(&state, user.uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
     let log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
@@ -801,7 +806,7 @@ async fn delete_new_log_media(AuthdUser(user): AuthdUser, State(state): State<Ap
 
 // Route /del/{username}/{project_slug}/{log_number}/{delete_filename}
 
-async fn delete_log_media(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number, delete_filename)): Path<(String, String, i64, String)>) -> impl IntoResponse {
+async fn delete_log_media(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number, delete_filename)): Path<(String, String, i64, String)>) -> impl IntoResponse {
     if user.username != username { return error_json("Can only delete your files").into_response(); }
     if let None = db::get_project_by_slug(&state, user.uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
     if log_number != db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1 { return "Only allowed to delete for today's log".into_response(); }
@@ -826,6 +831,7 @@ async fn delete_log_media(AuthdUser(user): AuthdUser, State(state): State<AppSta
 struct NavUserBitTemplate {
     user: User,
     edit_log_info: Option<(String, i64)>,
+    tz: i64,
 }
 
 #[derive(Template)]
@@ -836,6 +842,7 @@ async fn get_nav_bit(session: Session, State(state): State<AppState>) -> impl In
     let uid = session.get::<i64>("uid").await.unwrap();
     match uid {
         Some(uid) => {
+            let tz = session.get::<i64>("tz").await.unwrap().unwrap();
             let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return "error".into_response(); };
             let edit_log_info = match db::get_last_log(&state, user.uid).await {
                 Some(log) => {
@@ -850,7 +857,7 @@ async fn get_nav_bit(session: Session, State(state): State<AppState>) -> impl In
                 },
                 None => None
             };
-            return Html(NavUserBitTemplate{user, edit_log_info}.render().unwrap()).into_response();
+            return Html(NavUserBitTemplate{user, edit_log_info, tz}.render().unwrap()).into_response();
         },
         None => {
             return Html(LoginBitTemplate.render().unwrap()).into_response();
@@ -879,7 +886,7 @@ struct PostCommentSubmission {
 }
 
 async fn post_log_comments(
-    AuthdUser(user): AuthdUser, 
+    AuthdUser(user, _tz): AuthdUser, 
     State(state): State<AppState>,
     Path((username, project_slug, log_number)): Path<(String, String, i64)>,
     Form(form): Form<PostCommentSubmission>,
@@ -902,7 +909,7 @@ struct AccountTemplate {
     user: User
 }
 
-async fn get_account(AuthdUser(user): AuthdUser) -> impl IntoResponse {
+async fn get_account(AuthdUser(user, _tz): AuthdUser) -> impl IntoResponse {
     return Html(AccountTemplate{user}.render().unwrap()).into_response();
 }
 
@@ -911,7 +918,7 @@ struct ChangeDisplaynameSubmission {
     displayname: String,
 }
 
-async fn post_update_displayname(AuthdUser(user): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
+async fn post_update_displayname(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
     if !db::update_user_displayname(&state, user.uid, &form.displayname).await {
         return "Database failure".into_response();
     }
@@ -924,7 +931,7 @@ struct UpdatePfpRequest {
     pfp: FieldData<Bytes>,
 }
 
-async fn post_update_pfp(AuthdUser(user): AuthdUser, data: TypedMultipart<UpdatePfpRequest>) -> impl IntoResponse {
+async fn post_update_pfp(AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<UpdatePfpRequest>) -> impl IntoResponse {
     if data.pfp.contents.len() == 0 { return "You did not upload a file.".into_response(); }
     let content_type = data.pfp.metadata.content_type.as_ref().unwrap();
     if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported profile picture file format".into_response(); }
@@ -989,7 +996,7 @@ async fn get_like(session: Session, State(state): State<AppState>, Path((ty, uid
 
 // Route /like/{log|project|user}/{uid}/{like|dislike|unlike}
 
-async fn post_like(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((ty, uid, action)): Path<(String, i64, String)>) -> impl IntoResponse {
+async fn post_like(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((ty, uid, action)): Path<(String, i64, String)>) -> impl IntoResponse {
     match ty.as_ref() {
         "log" => {
             match action.as_ref() {
@@ -1029,7 +1036,7 @@ struct EditProjectTitleTemplate {
     project: Project,
 }
 
-async fn get_update_project_title(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+async fn get_update_project_title(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
     return Html(EditProjectTitleTemplate{user, project}.render().unwrap()).into_response();
@@ -1040,7 +1047,7 @@ struct FormUpdateTitle {
     title: String,
 }
 
-async fn post_update_project_title(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateTitle>) -> impl IntoResponse {
+async fn post_update_project_title(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateTitle>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
     if let Err(e) = db::update_project_title(&state, project.uid, &form.title).await { println!("{e}"); return "Database error".into_response(); }
@@ -1056,7 +1063,7 @@ struct EditProjectDescriptionTemplate {
     project: Project,
 }
 
-async fn get_update_project_description(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+async fn get_update_project_description(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
     return Html(EditProjectDescriptionTemplate{user, project}.render().unwrap()).into_response();
@@ -1067,7 +1074,7 @@ struct FormUpdateDescription {
     description: String,
 }
 
-async fn post_update_project_description(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateDescription>) -> impl IntoResponse {
+async fn post_update_project_description(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateDescription>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
     if let Err(e) = db::update_project_description(&state, project.uid, &form.description).await { println!("{e}"); return "Database error".into_response(); }
@@ -1082,7 +1089,7 @@ struct FormUpdateThumbnail {
     thumb: FieldData<Bytes>,
 }
 
-async fn post_update_project_thumbnail(AuthdUser(user): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<FormUpdateThumbnail>) -> impl IntoResponse {
+async fn post_update_project_thumbnail(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<FormUpdateThumbnail>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     if data.thumb.contents.len() == 0 { return "You did not upload a file.".into_response(); }
     if db::get_project_by_slug(&state, user.uid, &project_slug).await.is_none() { return "Project does not exist".into_response(); }

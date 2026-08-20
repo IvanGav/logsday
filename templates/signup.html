@@ -20,6 +20,7 @@
             <option value="5">Saturday</option>
             <option value="6">Sunday</option>
         </select></label>
+        <input type="text" name="tz" hidden hx-on:load="this.value=new Date().getTimezoneOffset()*-60;">
         <button type="submit">Sign Up</button>
     </form>
 {% endblock %}

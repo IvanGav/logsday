@@ -13,15 +13,15 @@ pub enum NewlogResult {
     AlreadyUploaded,
 }
 
-pub async fn newlog_num(state: &AppState, user: &User, project_slug: &str) -> NewlogResult {
+pub async fn newlog_num(state: &AppState, user: &User, project_slug: &str, tz: i64) -> NewlogResult {
     let proj = match db::get_project_by_slug(state, user.uid, project_slug).await { Some(proj) => proj, None => { return NewlogResult::ProjectNotFound; } };
     let last_project_log = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default();
     if !user.admin {
-        if !week::is_logsday(user.week_len, user.logsday_weekday) {
+        if !week::is_logsday_tz(user.week_len, user.logsday_weekday, tz) {
             return NewlogResult::NotLogsday;
         }
         let last_log = db::get_last_log(&state, user.uid).await.unwrap_or_default();
-        if week::days_since(last_log.created_on) == 0 {
+        if week::days_since(last_log.created_on) < 2 {
             return NewlogResult::AlreadyUploaded;
         }
     }

@@ -6,6 +6,7 @@
     <form hx-post="/login" hx-target="#err" class="login-form">
         <label>Username <input type="text" name="username" required></label>
         <label>Password <input type="password" name="password" required></label>
+        <input type="text" name="tz" hidden hx-on:load="this.value=new Date().getTimezoneOffset()*-60;">
         <button type="submit">Log In</button>
     </form>
 {% endblock %}
