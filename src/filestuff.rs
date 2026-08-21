@@ -188,7 +188,7 @@ pub fn count_log_directory_size<P: AsRef<Path>>(dir_path: P, log_html_content: &
 }
 
 /// Clean up the log directory - only keep the media files linked in index.md/index.html
-pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P, state: &AppState) -> std::io::Result<()> {
+pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
     let dir = dir_path.as_ref();
     let index_path = dir.join("index.html");
     // No index.html = log wasn't uploaded in the end; just delete the entire dir
@@ -225,7 +225,7 @@ pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P, state: &AppState
     Ok(())
 }
 
-pub async fn cleanup_all_log_directories(state: AppState) -> std::io::Result<()> {
+pub async fn cleanup_all_log_directories() -> std::io::Result<()> {
     let mut users = fs::read_dir("uploads/users")?;
     while let Some(userdir) = users.next() {
         let userdir = userdir?;
@@ -238,7 +238,7 @@ pub async fn cleanup_all_log_directories(state: AppState) -> std::io::Result<()>
             while let Some(logdir) = logs.next() {
                 let logdir = logdir?;
                 if !logdir.metadata()?.is_dir() { continue; }
-                cleanup_log_directory(logdir.path(), &state).await?;
+                cleanup_log_directory(logdir.path()).await?;
             }
         }
     }

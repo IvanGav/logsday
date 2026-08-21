@@ -159,9 +159,8 @@ async fn main() {
     let sched = JobScheduler::new().await.unwrap();
     let cleanup_job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
         println!("STARTED CLEANUP");
-        let job_state = state.clone();
         Box::pin(async move {
-            if let Err(e) = filestuff::cleanup_all_log_directories(job_state).await {
+            if let Err(e) = filestuff::cleanup_all_log_directories().await {
                 println!("FAILED CLEANUP - {e}");
             } else {
                 println!("FINISHED CLEANUP");
@@ -638,7 +637,7 @@ async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppSta
                     if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return "Couldn't create log dir".into_response(); }
                     if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
                     if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
-                    if let Err(e) = filestuff::cleanup_log_directory(&log_path, &state).await { println!("couldn't clean up: {}", e); }
+                    if let Err(e) = filestuff::cleanup_log_directory(&log_path).await { println!("couldn't clean up: {}", e); }
                     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
                 },
                 Err(e) => {
@@ -684,7 +683,7 @@ async fn post_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppS
     // the log must already exist; no need to re-create the log path
     if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
     if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
-    if let Err(e) = filestuff::cleanup_log_directory(&log_path, &state).await { println!("{}", e); }
+    if let Err(e) = filestuff::cleanup_log_directory(&log_path).await { println!("{}", e); }
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 
