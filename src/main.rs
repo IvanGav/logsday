@@ -136,6 +136,8 @@ async fn main() {
         .route("/del/{username}/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
         .route("/del/{username}/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
         .route("/comment/{username}/{project_slug}/{log_number}", get(get_log_comments).post(post_log_comments))
+        .route("/follow/{username}", post(post_follow_user))
+        .route("/unfollow/{username}", post(post_unfollow_user))
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
@@ -465,11 +467,12 @@ struct ViewUserTemplate {
     user: User,
     projects: Vec<Project>,
     owner: bool,
+    following: Option<bool>,
 }
 
 async fn get_view_self(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>) -> impl IntoResponse {
     let projects = db::get_user_projects(&state, user.uid).await;
-    return Html(ViewUserTemplate{user, projects, owner: true}.render().unwrap()).into_response();
+    return Html(ViewUserTemplate{user, projects, owner: true, following: None}.render().unwrap()).into_response();
 }
 
 // Route /u/{username}
@@ -479,7 +482,8 @@ async fn get_view_user(session: Session, State(state): State<AppState>, Path(use
     let user = get_or!(db::get_user_by_username(&state, &username).await, msg_html("User does not exist".into()));
     let projects = db::get_user_projects(&state, user.uid).await;
     let owner = authd_uid == user.uid;
-    return Html(ViewUserTemplate{user, projects, owner}.render().unwrap()).into_response();
+    let following = if authd_uid == 0 || authd_uid == user.uid { None } else { db::is_following_user(&state, authd_uid, &username).await.ok() };
+    return Html(ViewUserTemplate{user, projects, owner, following}.render().unwrap()).into_response();
 }
 
 // Route /u/{username}/{project_slug}
@@ -1025,6 +1029,22 @@ async fn post_like(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState
         _ => { return "Invalid type".into_response(); }
     }
     return (StatusCode::OK, [("HX-Trigger", "refreshLikes")], "").into_response();
+}
+
+// Route /follow/{username}
+
+async fn post_follow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
+    let err = db::follow_user(&state, &user, &username).await;
+    if let Err(err) = err { println!("Could not follow - {}", err); }
+    return hx_refresh();
+}
+
+// Route /unfollow/{username}
+
+async fn post_unfollow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
+    let err = db::unfollow_user(&state, &user, &username).await;
+    if let Err(err) = err { println!("Could not unfollow - {}", err); }
+    return hx_refresh();
 }
 
 // Route /u/{username}/{project_slug}/update/title

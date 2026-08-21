@@ -501,6 +501,7 @@ pub async fn set_user_like(state: &AppState, user_uid: i64, user_profile_uid: i6
 
 /* other */
 
+#[derive(Debug, Default, sqlx::FromRow)]
 pub struct News {
     pub username: String,
     pub displayname: String,
@@ -512,7 +513,63 @@ pub struct News {
 }
 
 pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
-    return vec![];
+    let news = sqlx::query_as::<_,News>(r#"
+        SELECT
+            u.username,
+            u.displayname,
+            p.title AS project_title,
+            p.slug AS project_slug,
+            l.title AS log_title,
+            l.number AS log_number,
+            l.created_on AS log_created_on
+        FROM user_follows uf
+        JOIN projects p ON p.user_uid = uf.user_profile_uid
+        JOIN users u ON u.uid = p.user_uid
+        JOIN logs l ON l.project_uid = p.uid
+        WHERE uf.user_uid = ?
+        ORDER BY l.created_on DESC
+        LIMIT 10
+        "#)
+        .bind(user_uid)
+        .fetch_all(&state.db)
+        .await.unwrap_or_default();
+    news
+}
+
+pub async fn is_following_user(state: &AppState, authd_user_uid: i64, profile_username: &str) -> Result<bool, sqlx::Error> {
+    let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM user_follows WHERE user_uid = ? AND user_profile_uid = ?)"
+    )
+        .bind(authd_user_uid)
+        .bind(profile_user.uid)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(exists)
+}
+
+pub async fn follow_user(state: &AppState, authd_user: &User, profile_username: &str) -> Result<(), sqlx::Error> {
+    let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    sqlx::query(
+        r#"
+        INSERT INTO user_follows (user_uid, user_profile_uid)
+        VALUES (?, ?)
+        "#)
+        .bind(authd_user.uid)
+        .bind(profile_user.uid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
+pub async fn unfollow_user(state: &AppState, authd_user: &User, profile_username: &str) -> Result<(), sqlx::Error> {
+    let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    sqlx::query("DELETE FROM user_follows WHERE user_uid = ? AND user_profile_uid = ?")
+        .bind(authd_user.uid)
+        .bind(profile_user.uid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
 }
 
 /*
