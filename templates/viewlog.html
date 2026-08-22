@@ -16,7 +16,7 @@
     <hr>
     {% if authd %}
     <form hx-post="/comment/{{ user.username }}/{{ project.slug }}/{{ log.number }}" hx-target="#err" hx-on::after:swap="this.reset()">
-        <input type="text" name="text" required>
+        <textarea name="text" required></textarea>
         <button type="submit">Post Comment</button>
     </form>
     <p id="err"></p>

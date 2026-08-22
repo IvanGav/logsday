@@ -1,6 +1,6 @@
 <span>
   <form hx-post="/u/{{ user.username }}/{{ project.slug }}/update/description" hx-target="#err" class="flex-col">
-    <textarea name="description" required autofocus>{{ project.description }}</textarea>
+    <textarea name="description" autofocus>{{ project.description }}</textarea>
     <button type="submit">Submit</button>
   </form>
 </span>

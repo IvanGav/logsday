@@ -17,7 +17,11 @@
         </div>
     </div>
     <p id="err"></p>
-    <div {% if owner %} class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/description" hx-swap="outerHTML" {% endif %}><p style="white-space: pre-wrap;">{{ project.description }}</p></div>
+    {% if project.description == "" && owner %}
+        <div class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/description" hx-swap="outerHTML"><p style="white-space: pre-wrap;"><em>Add description</em></p></div>
+    {% else %}
+        <div {% if owner %} class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/description" hx-swap="outerHTML" {% endif %}><p style="white-space: pre-wrap;">{{ project.description }}</p></div>
+    {% endif %}
     {% if owner %}
         <br>
         <a href="/u/{{ user.username }}/{{ project.slug }}/new">New Log</a>
