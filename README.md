@@ -153,7 +153,6 @@ CREATE TABLE project_follows (
 ```
 
 ## TODO list (no particular order)
-- Let edit project thumbnail
 - Improve comments
 	- (maybe) Let delete comments
 	- (maybe) Let edit comments
@@ -163,9 +162,7 @@ CREATE TABLE project_follows (
 - Highlight code blocks in Rust
 - Add tags to logs/projects/users
 - Search logs/projects/users by name, tags
-- Follow users/projects
 - Make/follow groups
-- Make discover page
 - Add "report" button
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
