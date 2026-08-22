@@ -4,8 +4,6 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use tokio::process::Command;
 use webp_animation::prelude::Encoder;
 
-use crate::AppState;
-
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
 #[derive(PartialEq)]

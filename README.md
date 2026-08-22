@@ -52,6 +52,13 @@ You can upload a log once a day. You can see other people's logs. You can invite
 - Additional features
   - `![](name.ext)` represents a multimedia embed, depending on `.ext`. For supported extensions, refer to `filestuff::media_type`
 
+## Environment Variables
+
+- The current system is set up to use a gmail account to send out emails to users when it's their logsday.
+  - `export GMAIL_APP_PASSWORD={your_app_password}`
+  - The app password can be gotten by going to `https://myaccount.google.com/apppasswords`, as long as 2 factor authentication for the account is enabled.
+  - And if you're running it yourself, change the email address in `email.rs` - `pub const GMAIL_ADDRESS: &str = "youraddress@gmail.com";`
+
 ## SQLite Tables
 ```sql
 CREATE TABLE users (
@@ -62,6 +69,7 @@ CREATE TABLE users (
     week_len INTEGER NOT NULL DEFAULT 8,
     logsday_weekday INTEGER NOT NULL DEFAULT 3, -- Logsday is between Wednesday and Thursday; Monday is 0; Sunday is 6/7
     schedule_last_changed INTEGER NOT NULL, -- when the user changed their Logsday selection last time; unix timestamp
+    email TEXT,
     admin BOOLEAN NOT NULL DEFAULT FALSE,
     created_on INTEGER NOT NULL -- unix timestamp
 );

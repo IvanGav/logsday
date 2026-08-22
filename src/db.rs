@@ -116,6 +116,19 @@ pub async fn update_user_displayname(state: &AppState, user_uid: i64, new_displa
     return true;
 }
 
+pub async fn update_user_email(state: &AppState, user_uid: i64, new_email: &str) -> bool {
+    let result = sqlx::query("UPDATE users SET email = ? WHERE uid = ?;")
+        .bind(new_email)
+        .bind(user_uid)
+        .execute(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+        return false;
+    }
+    return true;
+}
+
 pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(), sqlx::Error> {
     let _ = sqlx::query("UPDATE logs SET title = ? WHERE uid = ?;")
         .bind(title)
@@ -147,7 +160,7 @@ pub async fn update_project_description(state: &AppState, project_uid: i64, new_
 
 pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
     let result = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE uid = ?"
+        "SELECT uid, username, displayname, password, week_len, logsday_weekday, admin, created_on FROM users WHERE uid = ?"
     )
         .bind(user_id)
         .fetch_optional(&state.db)
@@ -158,8 +171,23 @@ pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
     return result.unwrap_or(None);
 }
 
+pub async fn get_user_email(state: &AppState, user_uid: i64) -> Option<String> {
+    let result = sqlx::query_scalar::<_,String>(
+        "SELECT email FROM users WHERE uid = ?"
+    )
+        .bind(user_uid)
+        .fetch_optional(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+    }
+    return result.unwrap_or(None);
+}
+
 pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<User> {
-    let result = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?;")
+    let result = sqlx::query_as::<_, User>(
+        "SELECT uid, username, displayname, password, week_len, logsday_weekday, admin, created_on FROM users WHERE username = ?;"
+    )
         .bind(username)
         .fetch_optional(&state.db)
         .await;
@@ -170,7 +198,9 @@ pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<Us
 }
 
 pub async fn get_all_users(state: &AppState) -> Vec<User> {
-    let users = sqlx::query_as::<_,User>("SELECT * FROM users;")
+    let users = sqlx::query_as::<_,User>(
+        "SELECT uid, username, displayname, password, week_len, logsday_weekday, admin, created_on FROM users;"
+    )
         .fetch_all(&state.db)
         .await;
     if let Err(e) = &users {
@@ -573,35 +603,6 @@ pub async fn unfollow_user(state: &AppState, authd_user: &User, profile_username
 }
 
 /*
-pub async fn get_news_for_user(db: &SqlitePool, user_uid: i64) -> Result<Vec<News>, sqlx::Error> {
-    let news = sqlx::query_as!(
-        News,
-        r#"
-        SELECT
-            u.username,
-            u.displayname,
-            p.title AS project_title,
-            p.slug AS project_slug,
-            l.title AS log_title,
-            l.number AS log_number,
-            l.created_on AS log_created_on
-        FROM user_follows uf
-        JOIN projects p ON p.user_uid = uf.user_profile_uid
-        JOIN users u ON u.uid = p.user_uid
-        JOIN logs l ON l.project_uid = p.uid
-        WHERE uf.user_uid = ?1
-        ORDER BY l.created_on DESC
-        LIMIT 10
-        "#,
-        user_uid
-    )
-    .fetch_all(db)
-    .await?;
-
-    Ok(news)
-}
-
-
 SELECT
     u.username,
     u.displayname,
@@ -628,3 +629,17 @@ OR p.uid IN (
 ORDER BY l.created_on DESC
 LIMIT 10;
 */
+
+pub async fn get_all_user_emails_whose_logsday_is_today(state: &AppState) -> Vec<String> {
+    let weekday_7_day_week = week::weekday_tz(7, 0);
+    let weekday_8_day_week = week::weekday_tz(8, 0);
+    let users = sqlx::query_scalar::<_,String>("SELECT email FROM users WHERE email != \"\" AND ((week_len = 7 AND logsday_weekday = ?) OR (week_len = 8 AND logsday_weekday = ?)) ;")
+        .bind(weekday_7_day_week)
+        .bind(weekday_8_day_week)
+        .fetch_all(&state.db)
+        .await;
+    if let Err(e) = &users {
+        println!("DB ERROR: {}", e);
+    }
+    return users.unwrap_or(vec![]);
+}

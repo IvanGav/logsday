@@ -32,7 +32,7 @@ fn day_num_tz(tz: i64) -> i64 {
 }
 
 /// Given the length of the week, return what day of the week it is (0-indexed from Monday)
-fn weekday_tz(week_len: i64, tz: i64) -> i64 {
+pub fn weekday_tz(week_len: i64, tz: i64) -> i64 {
     let offset = if week_len == 7 { WEEKDAY_OFFSET_7_DAY_WEEK } else { assert_eq!(week_len, 8); WEEKDAY_OFFSET_8_DAY_WEEK };
     return (day_num_tz(tz) + offset) % week_len;
 }

@@ -23,6 +23,7 @@ mod week;
 mod filestuff;
 mod newlog;
 mod password;
+mod email;
 
 const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satruday", "Sunday"];
 
@@ -70,6 +71,7 @@ struct AppState {
 async fn main() {
     let db_pool = SqlitePool::connect("sqlite:sqlite.db").await.expect("Could not connect to database. Please create `sqlite.db` database.");
     println!("Running release: {}", if cfg!(debug_assertions) { false } else { true });
+    email::ensure_env_variables();
     let session_store = MemoryStore::default(); // store user sessions to memory for now
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(if cfg!(debug_assertions) { false } else { true })
@@ -121,6 +123,7 @@ async fn main() {
         .route("/credits", get(get_credits))
         .route("/account", get(get_account))
         .route("/account/update/displayname", post(post_update_displayname))
+        .route("/account/update/email", post(post_update_email))
         .route("/account/update/pfp", post(post_update_pfp))
         .route("/new-project", get(get_new_project).post(post_new_project))
         .route("/u/{username}/{project_slug}/update/thumbnail", post(post_update_project_thumbnail))
@@ -158,13 +161,17 @@ async fn main() {
     // set up the cleanup cron job
     let sched = JobScheduler::new().await.unwrap();
     let cleanup_job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
-        println!("STARTED CLEANUP");
+        let state = state.clone();
         Box::pin(async move {
+            println!("STARTED CLEANUP");
             if let Err(e) = filestuff::cleanup_all_log_directories().await {
                 println!("FAILED CLEANUP - {e}");
             } else {
                 println!("FINISHED CLEANUP");
             }
+            println!("STARTED SENDING EMAILS");
+            let sent = email::send_emails_to_users(&state).await;
+            println!("FINISHED SENDING EMAILS - SENT {sent} EMAILS");
         })
     })
     .unwrap();
@@ -192,7 +199,6 @@ struct User {
     password: String,
     week_len: i64,
     logsday_weekday: i64,
-    schedule_last_changed: week::UnixTime,
     admin: bool,
     created_on: week::UnixTime,
 }
@@ -284,7 +290,9 @@ struct MessageTemplate {
 #[derive(Template)]
 #[template(path = "debug.html")]
 struct DebugTemplate;
-async fn get_debug() -> impl IntoResponse { Html(DebugTemplate.render().unwrap()).into_response() }
+async fn get_debug(State(state): State<AppState>) -> impl IntoResponse {
+    Html(DebugTemplate.render().unwrap()).into_response()
+}
 
 // Route /
 
@@ -452,10 +460,12 @@ async fn get_mdguide() -> impl IntoResponse {
 
 #[derive(Template)]
 #[template(path = "credits.html")]
-struct CreditsTemplate;
+struct CreditsTemplate {
+    logsday_email: String
+}
 
 async fn get_credits() -> impl IntoResponse {
-    return Html(CreditsTemplate.render().unwrap()).into_response();
+    return Html(CreditsTemplate { logsday_email: email::GMAIL_ADDRESS.to_string() }.render().unwrap()).into_response();
 }
 
 // Route /u
@@ -905,11 +915,13 @@ async fn post_log_comments(
 #[derive(Template)]
 #[template(path = "account.html")]
 struct AccountTemplate {
-    user: User
+    user: User,
+    user_email: String,
 }
 
-async fn get_account(AuthdUser(user, _tz): AuthdUser) -> impl IntoResponse {
-    return Html(AccountTemplate{user}.render().unwrap()).into_response();
+async fn get_account(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>) -> impl IntoResponse {
+    let user_email = get_or!(db::get_user_email(&state, user.uid).await, "User email does not exist, somehow");
+    return Html(AccountTemplate{user, user_email}.render().unwrap()).into_response();
 }
 
 #[derive(Deserialize, Debug)]
@@ -919,6 +931,18 @@ struct ChangeDisplaynameSubmission {
 
 async fn post_update_displayname(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
     if !db::update_user_displayname(&state, user.uid, &form.displayname).await {
+        return "Database failure".into_response();
+    }
+    return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
+}
+
+#[derive(Deserialize, Debug)]
+struct ChangeEmailSubmission {
+    email: String,
+}
+
+async fn post_update_email(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeEmailSubmission>) -> impl IntoResponse {
+    if !db::update_user_email(&state, user.uid, &form.email).await {
         return "Database failure".into_response();
     }
     return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
