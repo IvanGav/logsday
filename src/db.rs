@@ -313,7 +313,7 @@ pub async fn _get_last_project_log(state: &AppState, project_uid: i64) -> Option
     return log.unwrap_or(None);
 }
 
-pub async fn get_comments_for_log(state: &AppState, log_uid: i64,) -> Vec<Comment> {
+pub async fn get_comments_for_log(state: &AppState, log_uid: i64) -> Vec<Comment> {
     let comments = sqlx::query_as::<_, Comment>(
         r#"
         SELECT 

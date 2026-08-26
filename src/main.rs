@@ -860,10 +860,14 @@ async fn get_nav_bit(session: Session, State(state): State<AppState>) -> impl In
             let user = if let Some(u) = db::get_user(&state, uid).await { u } else { return "error".into_response(); };
             let edit_log_info = match db::get_last_log(&state, user.uid).await {
                 Some(log) => {
-                    Some((
-                        db::get_project(&state, log.project_uid).await.unwrap().slug,
-                        log.number
-                    ))
+                    if week::is_logsday_tz(user.week_len, user.logsday_weekday, tz) && log.can_edit() {
+                        Some((
+                            db::get_project(&state, log.project_uid).await.unwrap().slug,
+                            log.number
+                        ))
+                    } else {
+                        None
+                    }
                 },
                 None => None
             };
