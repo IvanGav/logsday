@@ -566,6 +566,27 @@ pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
     news
 }
 
+pub async fn get_global_news(state: &AppState) -> Vec<News> {
+    let news = sqlx::query_as::<_,News>(r#"
+        SELECT
+            u.username,
+            u.displayname,
+            p.title AS project_title,
+            p.slug AS project_slug,
+            l.title AS log_title,
+            l.number AS log_number,
+            l.created_on AS log_created_on
+        FROM logs l
+        JOIN projects p ON p.uid = l.project_uid
+        JOIN users u ON u.uid = p.user_uid
+        ORDER BY l.created_on DESC
+        LIMIT 10
+        "#)
+        .fetch_all(&state.db)
+        .await.unwrap_or_default();
+    news
+}
+
 pub async fn is_following_user(state: &AppState, authd_user_uid: i64, profile_username: &str) -> Result<bool, sqlx::Error> {
     let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
     let exists = sqlx::query_scalar::<_, bool>(

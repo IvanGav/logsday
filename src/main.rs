@@ -301,14 +301,15 @@ async fn get_debug(State(state): State<AppState>) -> impl IntoResponse {
 struct LandingTemplate {
     display_users: Vec<User>,
     news: Option<Vec<db::News>>,
+    global_news: Vec<db::News>,
 }
 
 async fn landing(session: Session, State(state): State<AppState>) -> impl IntoResponse {
     let authd_uid = match AuthdUser::get_user(&session, &state).await { Some(u) => u.0.uid, None => 0 }; // no user will have uid of 0; ever
     let news = if authd_uid == 0 { None } else { Some(db::get_news_for_user(&state, authd_uid).await) };
-
+    let global_news = db::get_global_news(&state).await;
     let display_users = db::get_all_users(&state).await;
-    let render = LandingTemplate { display_users, news }.render();
+    let render = LandingTemplate { display_users, news, global_news }.render();
     if let Ok(render) = render {
         return Html(render).into_response();
     }

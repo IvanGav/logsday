@@ -8,7 +8,9 @@ pub const GMAIL_ADDRESS: &str = "logsday.mail@gmail.com";
 
 // panic with an error message if the right env variables have not been set
 pub fn ensure_env_variables() {
-    let _ = get_app_password();
+    if !cfg!(debug_assertions) {
+        let _ = get_app_password();
+    }
 }
 
 pub async fn send_emails_to_users(state: &AppState) -> usize {
