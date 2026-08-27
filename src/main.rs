@@ -736,7 +736,7 @@ async fn delete_comment(AuthdUser(user, _tz): AuthdUser, State(state): State<App
     if !db::delete_comment(&state, comment.uid).await {
         return "Comment does not exist or cannot be deleted".into_response();
     }
-    return hx_refresh().into_response();
+    return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response();
 }
 
 #[derive(Deserialize, Debug)]
@@ -751,7 +751,7 @@ async fn post_update_comment(AuthdUser(user, _tz): AuthdUser, State(state): Stat
         println!("Failed to edit comment: {e}");
         return "Database failure".into_response();
     }
-    return hx_refresh().into_response();
+    return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response();
 }
 
 // Route /u/{username}/{project_slug}/new/media
