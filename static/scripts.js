@@ -382,3 +382,14 @@ function setupNewlogListeners() {
     });
     setupPreview();
 }
+
+function editComment(comment_uid) {
+    let commentElement = document.getElementById(`comment_${comment_uid}`);
+    let commentText = commentElement.children[1].innerHTML;
+
+    let textInput = document.createElement("textarea"); textInput.setAttribute("name", "comment"); textInput.innerHTML = commentText;
+    let confirmButton = document.createElement("button"); confirmButton.innerHTML = "Confirm";
+    let form = document.createElement("form"); form.appendChild(textInput); form.appendChild(confirmButton); form.setAttribute("hx-post", `/comment/${comment_uid}`); form.setAttribute("hx-target", "#err");
+    commentElement.replaceChildren(form);
+    htmx.process(form);
+}

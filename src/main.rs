@@ -4,7 +4,6 @@ use axum::{
 };
 use axum::extract::{Path, Query, State};
 use axum_typed_multipart::{FieldData, TryFromMultipart, TypedMultipart};
-// use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor};
 use std::{collections::HashMap, fs, net::SocketAddr, time::SystemTime};
 use tower_http::services::ServeDir;
 use sqlx::sqlite::SqlitePool;
@@ -77,22 +76,6 @@ async fn main() {
         .with_secure(if cfg!(debug_assertions) { false } else { true })
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
-    // prevent same IP from spamming requests; up to 250 requests in burst allowed, refreshing 1 every second
-    // let governor_config = GovernorConfigBuilder::default()
-    //     .key_extractor(SmartIpKeyExtractor)
-    //     .per_second(1)
-    //     .burst_size(250)
-    //     .finish()
-    //     .expect("Could not create governor_config");
-    // let governor_limiter = governor_config.limiter().clone();
-    // every minute, clean up old ips; prevents them from being stored indefinitely
-    // tokio::spawn(async move {
-    //     loop {
-    //         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-    //         governor_limiter.retain_recent();
-    //     }
-    // });
-
     let (tx, mut rx) = mpsc::channel::<filestuff::CompressVideoJob>(100);
     let state = AppState { db: db_pool, tx };
 
@@ -139,6 +122,7 @@ async fn main() {
         .route("/del/{username}/{project_slug}/new/{delete_filename}", delete(delete_new_log_media))
         .route("/del/{username}/{project_slug}/{log_number}/{delete_filename}", delete(delete_log_media))
         .route("/comment/{username}/{project_slug}/{log_number}", get(get_log_comments).post(post_log_comments))
+        .route("/comment/{comment_uid}", post(post_update_comment).delete(delete_comment))
         .route("/follow/{username}", post(post_follow_user))
         .route("/unfollow/{username}", post(post_unfollow_user))
         .route("/u", get(get_view_self))
@@ -150,7 +134,6 @@ async fn main() {
         .route("/favicon.ico", get(get_favicon))
         .nest_service("/uploads", ServeDir::new("uploads/users"))
         .nest_service("/static", ServeDir::new("static"))
-        // .layer(GovernorLayer::new(governor_config))
         .layer(session_layer)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024 * 1024)) // do not allow uploads of over 10GB; should also be enforced on client side
         .with_state(state.clone());
@@ -231,6 +214,7 @@ impl LogEntry {
 
 #[derive(Debug, sqlx::FromRow, Default)]
 struct Comment {
+    uid: i64,
     displayname: String,
     username: String,
     text: String,
@@ -730,7 +714,7 @@ async fn post_del_project(AuthdUser(user, _tz): AuthdUser, State(state): State<A
 
 // Route /del/{username}/{project_slug}/{log_number}
 
-async fn post_del_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String,i64)>) -> impl IntoResponse {
+async fn post_del_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>) -> impl IntoResponse {
     if user.username != username { return "You can only delete your log.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, "Log does not exist");
@@ -742,6 +726,32 @@ async fn post_del_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppSt
         return "Could not clean up uploads directory after deletion".into_response();
     }
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
+}
+
+// Route /comment/{comment_uid}
+
+async fn delete_comment(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(comment_uid): Path<i64>) -> impl IntoResponse {
+    let comment = get_or!(db::get_comment_by_uid(&state, comment_uid).await, "Cannot find comment");
+    if user.username != comment.username { return "You can only delete your comments.".into_response(); }
+    if !db::delete_comment(&state, comment.uid).await {
+        return "Comment does not exist or cannot be deleted".into_response();
+    }
+    return hx_refresh().into_response();
+}
+
+#[derive(Deserialize, Debug)]
+struct UpdateCommentSubmission {
+    comment: String,
+}
+
+async fn post_update_comment(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(comment_uid): Path<i64>, Form(UpdateCommentSubmission{ comment }): Form<UpdateCommentSubmission>) -> impl IntoResponse {
+    let comment_entry = get_or!(db::get_comment_by_uid(&state, comment_uid).await, "Cannot find comment");
+    if user.username != comment_entry.username { return "You can only edit your comments.".into_response(); }
+    if let Err(e) = db::update_comment(&state, comment_entry.uid, &comment).await {
+        println!("Failed to edit comment: {e}");
+        return "Database failure".into_response();
+    }
+    return hx_refresh().into_response();
 }
 
 // Route /u/{username}/{project_slug}/new/media
@@ -884,14 +894,17 @@ async fn get_nav_bit(session: Session, State(state): State<AppState>) -> impl In
 #[derive(Template)]
 #[template(path = "bits/comment_list.html")]
 struct CommentListTemplate {
+    user: Option<User>,
     comments: Vec<Comment>,
 }
 
-async fn get_log_comments(State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>) -> impl IntoResponse {
+async fn get_log_comments(session: Session, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>) -> impl IntoResponse {
     let owner = get_or!(db::get_user_by_username(&state, &username).await, "User does not exist");
     let log = get_or!(db::get_log_uuid_pslug_lslug(&state, owner.uid, &project_slug, log_number).await, "Log does not exist");
     let comments = db::get_comments_for_log(&state, log.uid).await;
-    return Html(CommentListTemplate{comments}.render().unwrap()).into_response();
+    let user_uid = session.get::<i64>("uid").await.unwrap_or(None).unwrap_or(0);
+    let user = db::get_user(&state, user_uid).await;
+    return Html(CommentListTemplate{user, comments}.render().unwrap()).into_response();
 }
 
 #[derive(Deserialize, Debug)]
@@ -978,7 +991,7 @@ async fn post_update_pfp(AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<U
     }
 }
 
-// Route /like/log/{log_uid}
+// Route /like/{log|project|user}/{uid}
 
 #[derive(Template)]
 #[template(path = "bits/likes.html")]

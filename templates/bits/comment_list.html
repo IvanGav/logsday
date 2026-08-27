@@ -1,8 +1,8 @@
 {% for comment in comments %}
-<div class="comment flex-col">
-    <span><a href="/u/{{ comment.username }}">{{ comment.displayname }}</a> (on <span unix-utc="{{ comment.created_on }}" hx-on:load="renderCreatedOn(this)"></span>)</span>
-    <span>{{ comment.text }}</span>
-</div>
+    <div class="comment flex-col" id="comment_{{ comment.uid }}">
+        <span><a href="/u/{{ comment.username }}">{{ comment.displayname }}</a> (on <span unix-utc="{{ comment.created_on }}" hx-on:load="renderCreatedOn(this)"></span>) {% if let Some(user) = user %} {% if user.username == comment.username %} <button onclick="editComment('{{ comment.uid }}')">Edit Comment</button> <button hx-delete="/comment/{{ comment.uid }}" hx-target="#err">Delete Comment</button> {% endif %} {% endif %}</span>
+        <span>{{ comment.text }}</span>
+    </div>
 {% else %}
 <span>So empty here... Be the first logger to write something!</span>
 {% endfor %}

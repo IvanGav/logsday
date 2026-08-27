@@ -101,6 +101,18 @@ pub async fn delete_log(state: &AppState, log_uid: i64) -> bool {
     return true;
 }
 
+pub async fn delete_comment(state: &AppState, comment_uid: i64) -> bool {
+    let result = sqlx::query("DELETE FROM log_comments WHERE uid = ?;")
+        .bind(comment_uid)
+        .execute(&state.db)
+        .await;
+    if let Err(e) = &result {
+        println!("DB ERROR: {}", e);
+        return false;
+    }
+    return true;
+}
+
 // Updaters
 
 pub async fn update_user_displayname(state: &AppState, user_uid: i64, new_displayname: &str) -> bool {
@@ -135,7 +147,7 @@ pub async fn update_log(state: &AppState, log_uid: i64, title: &str) -> Result<(
         .bind(log_uid)
         .execute(&state.db)
         .await?;
-    return Ok(());
+    Ok(())
 }
 
 pub async fn update_project_title(state: &AppState, project_uid: i64, new_title: &str) -> Result<(), sqlx::Error> {
@@ -144,7 +156,7 @@ pub async fn update_project_title(state: &AppState, project_uid: i64, new_title:
         .bind(project_uid)
         .execute(&state.db)
         .await?;
-    return Ok(());
+    Ok(())
 }
 
 pub async fn update_project_description(state: &AppState, project_uid: i64, new_description: &str) -> Result<(), sqlx::Error> {
@@ -153,7 +165,16 @@ pub async fn update_project_description(state: &AppState, project_uid: i64, new_
         .bind(project_uid)
         .execute(&state.db)
         .await?;
-    return Ok(());
+    Ok(())
+}
+
+pub async fn update_comment(state: &AppState, comment_uid: i64, text: &str) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query("UPDATE log_comments SET text = ? WHERE uid = ?;")
+        .bind(text)
+        .bind(comment_uid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
 }
 
 // Getters for `users` table
@@ -316,7 +337,8 @@ pub async fn _get_last_project_log(state: &AppState, project_uid: i64) -> Option
 pub async fn get_comments_for_log(state: &AppState, log_uid: i64) -> Vec<Comment> {
     let comments = sqlx::query_as::<_, Comment>(
         r#"
-        SELECT 
+        SELECT
+            c.uid,
             u.displayname,
             u.username,
             c.text,
@@ -334,6 +356,30 @@ pub async fn get_comments_for_log(state: &AppState, log_uid: i64) -> Vec<Comment
         println!("DB ERROR: {}", e);
     }
     return comments.unwrap_or(vec![]);
+}
+
+pub async fn get_comment_by_uid(state: &AppState, comment_uid: i64) -> Option<Comment> {
+    let comment = sqlx::query_as::<_, Comment>(
+        r#"
+        SELECT
+            c.uid,
+            u.displayname,
+            u.username,
+            c.text,
+            c.created_on
+        FROM log_comments c
+        JOIN users u ON c.user_uid = u.uid
+        WHERE c.uid = ?
+        ORDER BY c.created_on DESC
+        "#
+    )
+    .bind(comment_uid)
+    .fetch_one(&state.db)
+    .await;
+    if let Err(e) = &comment {
+        println!("DB ERROR: {}", e);
+    }
+    return comment.ok();
 }
 
 /* likes */
