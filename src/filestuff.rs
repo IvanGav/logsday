@@ -115,7 +115,7 @@ pub fn render_markdown_to_html(markdown_input: &str) -> String {
             Event::Start(Tag::Image { dest_url, .. }) => {
                 if dest_url.ends_with(".mp4") {
                     is_video = true;
-                    let video_url = dest_url.to_string();
+                    let video_url = askama::filters::urlencode(dest_url.to_string()).unwrap().to_string();
                     let mime_type = "video/mp4";
                     let video_html = format!(
                         r#"<video controls><source src="{}" type="{}"></source>"#,

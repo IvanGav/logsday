@@ -774,8 +774,9 @@ async fn post_new_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state):
 /// return the json of the file data on success; return an error code that will be displayed with js on error
 async fn post_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
     if user.username != username { return error_json("Cannot upload for different user").into_response(); }
+    if log_number < 0 { return error_json("Why so negative?").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
-    let last_log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number + 1;
+    let last_log_number = db::get_last_project_log_by_slug(&state, user.uid, &project_slug).await.unwrap_or_default().number;
     if log_number > last_log_number { return error_json("Can only upload to existing log").into_response(); }
     return handle_upload(&user, tz, &project, log_number, &data, &state).await.into_response();
 }
