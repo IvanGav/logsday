@@ -43,6 +43,11 @@
     </div>
     <hr>
     {% if owner %}
+        {% if project.listed %}
+            <button hx-post="/u/{{ user.username }}/{{ project.slug }}/unlist" hx-swap="none" style="color: red;">Unlist</button>
+        {% else %}
+            <button hx-post="/u/{{ user.username }}/{{ project.slug }}/relist" hx-swap="none">Relist</button>
+        {% endif %}
         <button class="link" hx-post="/del/{{ user.username }}/{{ project.slug }}" style="color:red" hx-target="#err" hx-confirm="Are you sure?">Delete This Project</button>
     {% endif %}
 {% endblock %}

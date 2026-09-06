@@ -28,7 +28,7 @@
         {% for n in global_news %}
             <div><a href="/u/{{ n.username }}">{{ n.displayname }}</a> / <a href="/u/{{ n.username }}/{{ n.project_slug }}">{{ n.project_title }}</a> / <a href="/u/{{ n.username }}/{{ n.project_slug }}/{{ n.log_number }}">Log {{ n.log_number }}: {{ n.log_title }}</a>    <span unix-utc="{{ n.log_created_on }}" hx-on:load="renderCreatedOn(this)"></span></div>
         {% else %}
-            <div>So empty... Has used Logsday yet!</div>
+            <div>So empty... Nobody has used Logsday yet!</div>
         {% endfor %}
     </div>
 {% endblock %}

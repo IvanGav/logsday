@@ -25,6 +25,7 @@ const TABLES: std::sync::LazyLock<std::collections::HashMap<&str, &str>> = std::
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
+    listed BOOLEAN NOT NULL DEFAULT TRUE,
     created_on INTEGER NOT NULL,
 
     UNIQUE(user_uid, slug),
@@ -89,20 +90,30 @@ const TABLES: std::sync::LazyLock<std::collections::HashMap<&str, &str>> = std::
 );")
 ].into()});
 
+fn schemas_match(sql1: &str, sql2: &str) -> bool {
+    use sqlparser::ast::Statement::CreateTable;
+    use sqlparser::parser::Parser;
+    let dialect = sqlparser::dialect::SQLiteDialect {};
+    let (Ok(mut ast1), Ok(mut ast2)) = (Parser::parse_sql(&dialect, sql1), Parser::parse_sql(&dialect, sql2)) else {
+        return false;
+    };
+    if let (Some(CreateTable(table1)), Some(CreateTable(table2))) = (ast1.first_mut(), ast2.first_mut()) {
+        table1.columns.sort();
+        table1.constraints.sort();
+        table2.columns.sort();
+        table2.constraints.sort();
+        return table1 == table2;
+    }
+    false
+}
+
 async fn verify_table_schema(state: &AppState, table_name: &str, expected_sql: &str) -> Option<bool> {
     let row = sqlx::query("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
         .bind(table_name)
         .fetch_optional(&state.db)
         .await.ok()??;
     let sql: String = row.get(0);
-    let dialect = sqlparser::dialect::SQLiteDialect {};
-    let expected_ast = sqlparser::parser::Parser::parse_sql(&dialect, expected_sql);
-    if let Err(e) = expected_ast { println!("VERIFY TABLE ERROR: {}", e); return Some(false); }
-    let expected_ast = expected_ast.unwrap();
-    let actual_ast = sqlparser::parser::Parser::parse_sql(&dialect, &sql);
-    if let Err(e) = actual_ast { println!("VERIFY TABLE ERROR: {}", e); return Some(false); }
-    let actual_ast = actual_ast.unwrap();
-    Some(expected_ast == actual_ast)
+    return Some(schemas_match(expected_sql, &sql));
 }
 
 pub async fn create_and_verify_tables(state: &AppState) -> bool {
@@ -144,12 +155,13 @@ pub async fn create_log(state: &AppState, project_id: i64, title: &str, number: 
 pub async fn create_project(state: &AppState, user_id: i64, title: &str, slug: &str, desc: &str) -> Result<i64, sqlx::Error> {
     assert!(slug::slug_valid(slug));
     let result = sqlx::query(
-        "INSERT INTO projects (user_uid, title, slug, description, created_on) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO projects (user_uid, title, slug, description, listed, created_on) VALUES (?, ?, ?, ?, ?, ?)"
     )
         .bind(user_id)
         .bind(title)
         .bind(slug)
         .bind(desc)
+        .bind(true)
         .bind(week::now())
         .execute(&state.db)
         .await?;
@@ -294,6 +306,15 @@ pub async fn update_project_description(state: &AppState, project_uid: i64, new_
     Ok(())
 }
 
+pub async fn update_project_listed(state: &AppState, project_uid: i64, listed: bool) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query("UPDATE projects SET listed = ? WHERE uid = ?;")
+        .bind(listed)
+        .bind(project_uid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
 pub async fn update_comment(state: &AppState, comment_uid: i64, text: &str) -> Result<(), sqlx::Error> {
     let _ = sqlx::query("UPDATE log_comments SET text = ? WHERE uid = ?;")
         .bind(text)
@@ -307,7 +328,7 @@ pub async fn update_comment(state: &AppState, comment_uid: i64, text: &str) -> R
 
 pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
     let result = sqlx::query_as::<_, User>(
-        "SELECT uid, username, displayname, password, week_len, logsday_weekday, admin, created_on FROM users WHERE uid = ?"
+        "SELECT * FROM users WHERE uid = ?"
     )
         .bind(user_id)
         .fetch_optional(&state.db)
@@ -319,7 +340,7 @@ pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
 }
 
 pub async fn get_user_email(state: &AppState, user_uid: i64) -> Option<String> {
-    let result = sqlx::query_scalar::<_,String>(
+    let result = sqlx::query_scalar::<_, String>(
         "SELECT email FROM users WHERE uid = ?"
     )
         .bind(user_uid)
@@ -333,7 +354,7 @@ pub async fn get_user_email(state: &AppState, user_uid: i64) -> Option<String> {
 
 pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<User> {
     let result = sqlx::query_as::<_, User>(
-        "SELECT uid, username, displayname, password, week_len, logsday_weekday, admin, created_on FROM users WHERE username = ?;"
+        "SELECT * FROM users WHERE username = ?;"
     )
         .bind(username)
         .fetch_optional(&state.db)
@@ -345,8 +366,8 @@ pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<Us
 }
 
 pub async fn get_all_users(state: &AppState) -> Vec<User> {
-    let users = sqlx::query_as::<_,User>(
-        "SELECT uid, username, displayname, password, week_len, logsday_weekday, admin, created_on FROM users;"
+    let users = sqlx::query_as::<_, User>(
+        "SELECT * FROM users;"
     )
         .fetch_all(&state.db)
         .await;
@@ -728,7 +749,7 @@ pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
         JOIN projects p ON p.user_uid = uf.user_profile_uid
         JOIN users u ON u.uid = p.user_uid
         JOIN logs l ON l.project_uid = p.uid
-        WHERE uf.user_uid = ?
+        WHERE uf.user_uid = ? AND p.listed = TRUE
         ORDER BY l.created_on DESC
         LIMIT 10
         "#)
@@ -751,6 +772,7 @@ pub async fn get_global_news(state: &AppState) -> Vec<News> {
         FROM logs l
         JOIN projects p ON p.uid = l.project_uid
         JOIN users u ON u.uid = p.user_uid
+        WHERE p.listed = TRUE
         ORDER BY l.created_on DESC
         LIMIT 10
         "#)

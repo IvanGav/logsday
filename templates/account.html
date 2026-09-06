@@ -31,7 +31,7 @@
     <div>If entered, an email notification will be sent every logsday, reminding you it's logsday. If you don't want to receive emails anymore, click "Reset Email".</div>
     <br>
     <form hx-post="/account/update/email" hx-target="#err"> <!-- hx-on::after:swap="this.reset()" -->
-        <label>Email <input type="text" name="email" required placeholder="{{ user_email }}"></label>
+        <label>Email <input type="text" name="email" required placeholder="{{ user.email }}"></label>
         <button type="submit">Set Email</button>
     </form>
     <br>

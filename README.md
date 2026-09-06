@@ -81,6 +81,7 @@ CREATE TABLE projects (
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
+    listed BOOLEAN NOT NULL DEFAULT TRUE,
     created_on INTEGER NOT NULL,
 
     UNIQUE(user_uid, slug),
@@ -166,6 +167,5 @@ CREATE TABLE project_follows (
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
 - Make phone layout compatible
-- Allow to unlist projects
 - Fix Bugs:
   - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

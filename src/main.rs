@@ -118,6 +118,8 @@ async fn main() {
         .route("/u/{username}/{project_slug}/update/title", get(get_update_project_title).post(post_update_project_title))
         .route("/u/{username}/{project_slug}/update/description", get(get_update_project_description).post(post_update_project_description))
         .route("/u/{username}/{project_slug}/new", get(get_new_log).post(post_new_log))
+        .route("/u/{username}/{project_slug}/unlist", post(post_unlist_project))
+        .route("/u/{username}/{project_slug}/relist", post(post_relist_project))
         .route("/u/{username}/{project_slug}/{log_number}/edit", get(get_edit_log).post(post_edit_log))
         .route("/u/{username}/{project_slug}/new/media", post(post_new_log_media_upload))
         .route("/u/{username}/{project_slug}/{log_number}/media", post(post_log_media_upload))
@@ -187,6 +189,8 @@ struct User {
     password: String,
     week_len: i64,
     logsday_weekday: i64,
+    schedule_last_changed: i64,
+    email: i64,
     admin: bool,
     created_on: week::UnixTime,
 }
@@ -198,6 +202,7 @@ struct Project {
     title: String,
     slug: String,
     description: String,
+    listed: bool,
     created_on: week::UnixTime,
 }
 
@@ -279,7 +284,7 @@ struct MessageTemplate {
 #[derive(Template)]
 #[template(path = "debug.html")]
 struct DebugTemplate;
-async fn get_debug(State(state): State<AppState>) -> impl IntoResponse {
+async fn get_debug(State(_state): State<AppState>) -> impl IntoResponse {
     Html(DebugTemplate.render().unwrap()).into_response()
 }
 
@@ -640,6 +645,22 @@ async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppSta
     }
 }
 
+// Route /u/{username}/{project_slug}/unlist|relist
+
+async fn post_unlist_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    if username != user.username { return (StatusCode::IM_A_TEAPOT /* BAD_REQUEST */, "Wrong user you dummy.").into_response(); }
+    let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
+    let _ = get_or!(db::update_project_listed(&state, project.uid, false).await, "Database error", err);
+    return hx_refresh().into_response();
+}
+
+async fn post_relist_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    if username != user.username { return (StatusCode::IM_A_TEAPOT /* BAD_REQUEST */, "Wrong user you dummy.").into_response(); }
+    let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
+    let _ = get_or!(db::update_project_listed(&state, project.uid, true).await, "Database error", err);
+    return hx_refresh().into_response();
+}
+
 // Route /u/{username}/{project_slug}/{log_number}/edit
 
 async fn get_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>) -> impl IntoResponse {
@@ -928,12 +949,10 @@ async fn post_log_comments(
 #[template(path = "account.html")]
 struct AccountTemplate {
     user: User,
-    user_email: String,
 }
 
-async fn get_account(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>) -> impl IntoResponse {
-    let user_email = get_or!(db::get_user_email(&state, user.uid).await, "User email does not exist, somehow");
-    return Html(AccountTemplate{user, user_email}.render().unwrap()).into_response();
+async fn get_account(AuthdUser(user, _tz): AuthdUser) -> impl IntoResponse {
+    return Html(AccountTemplate{user}.render().unwrap()).into_response();
 }
 
 #[derive(Deserialize, Debug)]

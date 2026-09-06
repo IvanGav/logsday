@@ -19,22 +19,25 @@
     {% if let Some(following) = following %}
         <br>
         {% if following %}
-            <button hx-post="/unfollow/{{ user.username }}" id="nav" hx-swap="none" style="color: red;">Unollow</button>
+            <button hx-post="/unfollow/{{ user.username }}" hx-swap="none" style="color: red;">Unfollow</button>
         {% else %}
-            <button hx-post="/follow/{{ user.username }}" id="nav" hx-swap="none">Follow</button>
+            <button hx-post="/follow/{{ user.username }}" hx-swap="none">Follow</button>
         {% endif %}
     {% endif %}
     {% if owner %} <br> <a href="/new-project">New Project</a> {% endif %}
     <hr>
     <div class="project-list">
         {% for proj in projects %}
-        <a class="project-listing" href="/u/{{ user.username }}/{{ proj.slug }}">
-            <img class="project-listing-thumb" src="/uploads/{{ user.username }}/{{ proj.slug }}/thumb.webp">
-            <p>{{ proj.title }}</p>
-            <span class="date">Created on: <span unix-utc="{{ proj.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
-        </a>
+            {% if proj.listed || owner %}
+                <a class="project-listing" href="/u/{{ user.username }}/{{ proj.slug }}">
+                    <img class="project-listing-thumb" src="/uploads/{{ user.username }}/{{ proj.slug }}/thumb.webp">
+                    <p>{{ proj.title }}</p>
+                    <span class="date">Created on: <span unix-utc="{{ proj.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
+                </a>
+            {% endif %}
         {% else %}
-        <p>So empty...</p>
+            <!-- I know this doesn't trigger when there's 0 listed projects and >0 unlisted. I don't care. If 1 person complains about it, I'll fix. -->
+            <p>So empty...</p>
         {% endfor %}
     </div>
     <hr>
