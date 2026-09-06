@@ -134,7 +134,6 @@ async fn main() {
         .route("/unfollow/{username}", post(post_unfollow_user))
         .route("/follow/{username}/{project_slug}", post(post_follow_project))
         .route("/unfollow/{username}/{project_slug}", post(post_unfollow_project))
-        
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
