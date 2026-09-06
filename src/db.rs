@@ -87,6 +87,14 @@ const TABLES: std::sync::LazyLock<std::collections::HashMap<&str, &str>> = std::
     PRIMARY KEY (user_uid, user_profile_uid),
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
     FOREIGN KEY (user_profile_uid) REFERENCES users(uid) ON DELETE CASCADE
+);"),
+("project_follows",
+"CREATE TABLE project_follows (
+    user_uid INTEGER NOT NULL,
+    project_uid INTEGER NOT NULL,
+    PRIMARY KEY (user_uid, project_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );")
 ].into()});
 
@@ -331,19 +339,6 @@ pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
         "SELECT * FROM users WHERE uid = ?"
     )
         .bind(user_id)
-        .fetch_optional(&state.db)
-        .await;
-    if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
-    }
-    return result.unwrap_or(None);
-}
-
-pub async fn get_user_email(state: &AppState, user_uid: i64) -> Option<String> {
-    let result = sqlx::query_scalar::<_, String>(
-        "SELECT email FROM users WHERE uid = ?"
-    )
-        .bind(user_uid)
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &result {
@@ -722,7 +717,7 @@ pub async fn set_user_like(state: &AppState, user_uid: i64, user_profile_uid: i6
     Ok(())
 }
 
-/* other */
+/* news */
 
 #[derive(Debug, Default, sqlx::FromRow)]
 pub struct News {
@@ -736,7 +731,7 @@ pub struct News {
 }
 
 pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
-    let news = sqlx::query_as::<_,News>(r#"
+    /*
         SELECT
             u.username,
             u.displayname,
@@ -752,6 +747,33 @@ pub async fn get_news_for_user(state: &AppState, user_uid: i64) -> Vec<News> {
         WHERE uf.user_uid = ? AND p.listed = TRUE
         ORDER BY l.created_on DESC
         LIMIT 10
+    */
+    let news = sqlx::query_as::<_,News>(r#"
+        SELECT
+            u.username,
+            u.displayname,
+            p.title AS project_title,
+            p.slug AS project_slug,
+            l.title AS log_title,
+            l.number AS log_number,
+            l.created_on AS log_created_on
+        FROM logs l
+        JOIN projects p ON l.project_uid = p.uid
+        JOIN users u ON p.user_uid = u.uid
+        WHERE p.user_uid IN (
+            -- followed users
+            SELECT user_profile_uid 
+            FROM user_follows 
+            WHERE user_uid = ?1 AND p.listed = TRUE
+        ) 
+        OR p.uid IN (
+            -- followed projects
+            SELECT project_uid 
+            FROM project_follows 
+            WHERE user_uid = ?1
+        )
+        ORDER BY l.created_on DESC
+        LIMIT 10;
         "#)
         .bind(user_uid)
         .fetch_all(&state.db)
@@ -781,69 +803,81 @@ pub async fn get_global_news(state: &AppState) -> Vec<News> {
     news
 }
 
-pub async fn is_following_user(state: &AppState, authd_user_uid: i64, profile_username: &str) -> Result<bool, sqlx::Error> {
-    let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+// follows
+
+pub async fn is_following_user(state: &AppState, authd_user_uid: i64, profile_user_uid: i64) -> Result<bool, sqlx::Error> {
     let exists = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM user_follows WHERE user_uid = ? AND user_profile_uid = ?)"
     )
         .bind(authd_user_uid)
-        .bind(profile_user.uid)
+        .bind(profile_user_uid)
         .fetch_one(&state.db)
         .await?;
     Ok(exists)
 }
 
-pub async fn follow_user(state: &AppState, authd_user: &User, profile_username: &str) -> Result<(), sqlx::Error> {
+pub async fn follow_user(state: &AppState, authd_user_uid: i64, profile_username: &str) -> Result<(), sqlx::Error> {
     let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
     sqlx::query(
         r#"
         INSERT INTO user_follows (user_uid, user_profile_uid)
         VALUES (?, ?)
         "#)
-        .bind(authd_user.uid)
+        .bind(authd_user_uid)
         .bind(profile_user.uid)
         .execute(&state.db)
         .await?;
     Ok(())
 }
 
-pub async fn unfollow_user(state: &AppState, authd_user: &User, profile_username: &str) -> Result<(), sqlx::Error> {
+pub async fn unfollow_user(state: &AppState, authd_user_uid: i64, profile_username: &str) -> Result<(), sqlx::Error> {
     let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
     sqlx::query("DELETE FROM user_follows WHERE user_uid = ? AND user_profile_uid = ?")
-        .bind(authd_user.uid)
+        .bind(authd_user_uid)
         .bind(profile_user.uid)
         .execute(&state.db)
         .await?;
     Ok(())
 }
 
-/*
-SELECT
-    u.username,
-    u.displayname,
-    p.title AS project_title,
-    p.slug AS project_slug,
-    l.title AS log_title,
-    l.number AS log_number,
-    l.created_on AS log_created_on
-FROM logs l
-JOIN projects p ON l.project_uid = p.uid
-JOIN users u ON p.user_uid = u.uid
-WHERE p.user_uid IN (
-    -- Users you follow
-    SELECT user_profile_uid 
-    FROM user_follows 
-    WHERE user_uid = ?1
-) 
-OR p.uid IN (
-    -- Specific projects you follow
-    SELECT project_uid 
-    FROM project_follows 
-    WHERE user_uid = ?1
-)
-ORDER BY l.created_on DESC
-LIMIT 10;
-*/
+pub async fn is_following_project(state: &AppState, authd_user_uid: i64, project_uid: i64) -> Result<bool, sqlx::Error> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM project_follows WHERE user_uid = ? AND project_uid = ?)"
+    )
+        .bind(authd_user_uid)
+        .bind(project_uid)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(exists)
+}
+
+pub async fn follow_project(state: &AppState, authd_user_uid: i64, profile_username: &str, project_slug: &str) -> Result<(), sqlx::Error> {
+    let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    let project = match get_project_by_slug(&state, profile_user.uid, project_slug).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    sqlx::query(
+        r#"
+        INSERT INTO project_follows (user_uid, project_uid)
+        VALUES (?, ?)
+        "#)
+        .bind(authd_user_uid)
+        .bind(project.uid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
+pub async fn unfollow_project(state: &AppState, authd_user_uid: i64, profile_username: &str, project_slug: &str) -> Result<(), sqlx::Error> {
+    let profile_user = match get_user_by_username(&state, profile_username).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    let project = match get_project_by_slug(&state, profile_user.uid, project_slug).await { Some(u) => u, None => return Err(sqlx::Error::RowNotFound) };
+    sqlx::query("DELETE FROM project_follows WHERE user_uid = ? AND project_uid = ?")
+        .bind(authd_user_uid)
+        .bind(project.uid)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
+// other
 
 pub async fn get_all_user_emails_whose_logsday_is_today(state: &AppState) -> Vec<String> {
     let weekday_7_day_week = week::weekday_tz(7, 0);

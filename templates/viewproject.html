@@ -22,6 +22,14 @@
     {% else %}
         <div {% if owner %} class="editable-field" hx-get="/u/{{ user.username }}/{{ project.slug }}/update/description" hx-swap="outerHTML" {% endif %}><p style="white-space: pre-wrap;">{{ project.description }}</p></div>
     {% endif %}
+    {% if let Some(following) = following %}
+        <br>
+        {% if following %}
+            <button hx-post="/unfollow/{{ user.username }}/{{ project.slug }}" hx-swap="none" style="color: red;">Unfollow</button>
+        {% else %}
+            <button hx-post="/follow/{{ user.username }}/{{ project.slug }}" hx-swap="none">Follow</button>
+        {% endif %}
+    {% endif %}
     {% if owner %}
         <br>
         <a href="/u/{{ user.username }}/{{ project.slug }}/new">New Log</a>

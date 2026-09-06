@@ -132,6 +132,9 @@ async fn main() {
         .route("/comment/{comment_uid}", post(post_update_comment).delete(delete_comment))
         .route("/follow/{username}", post(post_follow_user))
         .route("/unfollow/{username}", post(post_unfollow_user))
+        .route("/follow/{username}/{project_slug}", post(post_follow_project))
+        .route("/unfollow/{username}/{project_slug}", post(post_unfollow_project))
+        
         .route("/u", get(get_view_self))
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
@@ -486,7 +489,7 @@ async fn get_view_user(session: Session, State(state): State<AppState>, Path(use
     let user = get_or!(db::get_user_by_username(&state, &username).await, msg_html("User does not exist".into()));
     let projects = db::get_user_projects(&state, user.uid).await;
     let owner = authd_uid == user.uid;
-    let following = if authd_uid == 0 || authd_uid == user.uid { None } else { db::is_following_user(&state, authd_uid, &username).await.ok() };
+    let following = if authd_uid == 0 || authd_uid == user.uid { None } else { db::is_following_user(&state, authd_uid, user.uid).await.ok() };
     return Html(ViewUserTemplate{user, projects, owner, following}.render().unwrap()).into_response();
 }
 
@@ -499,6 +502,7 @@ struct ViewProjectTemplate {
     project: Project,
     logs: Vec<LogEntry>,
     owner: bool,
+    following: Option<bool>,
 }
 
 async fn get_view_project(session: Session, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
@@ -507,7 +511,8 @@ async fn get_view_project(session: Session, State(state): State<AppState>, Path(
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, msg_html("Project does not exist".into()));
     let logs = db::get_project_logs(&state, project.uid).await;
     let owner = authd_uid == user.uid;
-    return Html(ViewProjectTemplate{user, project, logs, owner}.render().unwrap()).into_response();
+    let following = db::is_following_project(&state, authd_uid, project.uid).await.ok();
+    return Html(ViewProjectTemplate{user, project, logs, owner, following}.render().unwrap()).into_response();
 }
 
 // Route /u/{username}/{project_slug}/{log_number}
@@ -1084,7 +1089,7 @@ async fn post_like(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState
 // Route /follow/{username}
 
 async fn post_follow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
-    let err = db::follow_user(&state, &user, &username).await;
+    let err = db::follow_user(&state, user.uid, &username).await;
     if let Err(err) = err { println!("Could not follow - {}", err); }
     return hx_refresh();
 }
@@ -1092,7 +1097,23 @@ async fn post_follow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<A
 // Route /unfollow/{username}
 
 async fn post_unfollow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
-    let err = db::unfollow_user(&state, &user, &username).await;
+    let err = db::unfollow_user(&state, user.uid, &username).await;
+    if let Err(err) = err { println!("Could not unfollow - {}", err); }
+    return hx_refresh();
+}
+
+// Route /follow/{username}/{project_slug}
+
+async fn post_follow_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    let err = db::follow_project(&state, user.uid, &username, &project_slug).await;
+    if let Err(err) = err { println!("Could not follow - {}", err); }
+    return hx_refresh();
+}
+
+// Route /unfollow/{username}
+
+async fn post_unfollow_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
+    let err = db::unfollow_project(&state, user.uid, &username, &project_slug).await;
     if let Err(err) = err { println!("Could not unfollow - {}", err); }
     return hx_refresh();
 }
