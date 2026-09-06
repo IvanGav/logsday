@@ -79,6 +79,11 @@ async fn main() {
     let (tx, mut rx) = mpsc::channel::<filestuff::CompressVideoJob>(100);
     let state = AppState { db: db_pool, tx };
 
+    if !db::create_and_verify_tables(&state).await {
+        println!("ERROR: Please fix the sql tables");
+        return;
+    }
+
     // Thread that compresses videos
     tokio::spawn(async move {
         while let Some(job) = rx.recv().await {
@@ -546,26 +551,14 @@ struct NewProjectRequest {
 
 async fn post_new_project(State(state): State<AppState>, AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
     let pslug: &str = if data.slug.len() == 0 { &slug::slug_from(&data.title) } else { &data.slug };
-
     if data.title.len() > 255 || pslug.len() > 255 { return "title or slug too long".into_response(); }
     if data.title.len() == 0 || pslug.len() == 0 { return "title or slug is empty".into_response(); }
     if data.description.len() > 65535 { return "description too long".into_response(); }
-
-    let (thumbnail, content_type) = if data.thumbnail.contents.len() == 0 {
-        (&fs::read("static/favicon.ico").unwrap()[..], "image/x-icon")
-    } else {
-        (&data.thumbnail.contents[..], data.thumbnail.metadata.content_type.as_ref().unwrap() as &str)
-    };
-
-    if filestuff::mime_media_type(content_type) != MediaType::Image { return "Unsupported thumbnail file format".into_response(); }
+    let thumbnail = if data.thumbnail.contents.len() == 0 { &fs::read("static/favicon.ico").unwrap()[..] } else { &data.thumbnail.contents[..] };
     if !slug::slug_valid(&pslug) { return "Project slug is invalid".into_response(); }
     let project_path = format!("uploads/users/{}/{}", &user.username, &pslug);
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
-
-    let webp_img = filestuff::convert_to_webp(thumbnail);
-    if let None = webp_img { return "Could not convert to webp".into_response(); }
-    let webp_img = webp_img.unwrap();
-
+    let webp_img = get_or!(filestuff::convert_to_webp(thumbnail), "Could not convert to webp");
     if let Ok(_) = db::create_project(&state, user.uid, &data.title, &pslug, &data.description).await {
         if let Ok(_) = fs::create_dir_all(project_path) {
             if let Ok(_) = fs::write(thumbnail_path, &webp_img) {

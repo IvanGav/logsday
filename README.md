@@ -28,6 +28,7 @@ You can upload a log once a day. You can see other people's logs. You can invite
   - `argon2` for password hashing
   - `pulldown-cmark` for markdown to html rendering
   - `sqlx` for interacting with sqlite db
+  - `sqlparser` for checking whether two table schemas are identical
   - `infer` for scanning magic bytes of files
   - `image` for converting image formats
   - `webp-animation` for specifically converting gif to webp (wrapper around `libwebp`)
@@ -68,10 +69,10 @@ CREATE TABLE users (
     password TEXT NOT NULL,
     week_len INTEGER NOT NULL DEFAULT 8,
     logsday_weekday INTEGER NOT NULL DEFAULT 3, -- Logsday is between Wednesday and Thursday; Monday is 0; Sunday is 6/7
-    schedule_last_changed INTEGER NOT NULL, -- when the user changed their Logsday selection last time; unix timestamp
+    schedule_last_changed INTEGER NOT NULL,
     email TEXT,
     admin BOOLEAN NOT NULL DEFAULT FALSE,
-    created_on INTEGER NOT NULL -- unix timestamp
+    created_on INTEGER NOT NULL
 );
 
 CREATE TABLE projects (
@@ -80,7 +81,7 @@ CREATE TABLE projects (
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     description TEXT,
-    created_on INTEGER NOT NULL, -- unix timestamp
+    created_on INTEGER NOT NULL,
 
     UNIQUE(user_uid, slug),
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
@@ -91,7 +92,7 @@ CREATE TABLE logs (
     project_uid INTEGER NOT NULL,
     title TEXT NOT NULL,
     number INTEGER NOT NULL, -- this log's sequential number in the project
-    created_on INTEGER NOT NULL, -- unix timestamp
+    created_on INTEGER NOT NULL,
 
     UNIQUE(project_uid, number),
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
@@ -102,7 +103,7 @@ CREATE TABLE log_comments (
     log_uid INTEGER NOT NULL,
     user_uid INTEGER NOT NULL,
     text TEXT NOT NULL,
-    created_on INTEGER NOT NULL, -- unix timestamp
+    created_on INTEGER NOT NULL,
 
     FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE,
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
@@ -154,8 +155,6 @@ CREATE TABLE project_follows (
 
 ## TODO list (no particular order)
 - Improve comments
-	- (maybe) Let delete comments
-	- (maybe) Let edit comments
 	- Let reply to comments
 	- Add comments to user/project pages
 - Add updates (`{last_log#}.{update#}`)
@@ -166,7 +165,6 @@ CREATE TABLE project_follows (
 - Add "report" button
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
-- Auto create sqlite tables if they don't yet exist
 - Make phone layout compatible
 - Allow to unlist projects
 - Fix Bugs:

@@ -1,6 +1,132 @@
+use sqlx::Row;
+
 use crate::{AppState, Comment, LogEntry, Project, User, slug, week};
 
-// TODO `SELECT name FROM sqlite_master WHERE type='table' AND name='users';`
+// Query and create missing tables
+
+const TABLES: std::sync::LazyLock<std::collections::HashMap<&str, &str>> = std::sync::LazyLock::new(||{[
+("users",
+"CREATE TABLE users (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    displayname TEXT NOT NULL,
+    password TEXT NOT NULL,
+    week_len INTEGER NOT NULL DEFAULT 8,
+    logsday_weekday INTEGER NOT NULL DEFAULT 3, -- Logsday is between Wednesday and Thursday; Monday is 0; Sunday is 6/7
+    schedule_last_changed INTEGER NOT NULL,
+    email TEXT,
+    admin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_on INTEGER NOT NULL
+);"),
+("projects",
+"CREATE TABLE projects (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_uid INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    description TEXT,
+    created_on INTEGER NOT NULL,
+
+    UNIQUE(user_uid, slug),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
+);"),
+("logs",
+"CREATE TABLE logs (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_uid INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    number INTEGER NOT NULL, -- this log's sequential number in the project
+    created_on INTEGER NOT NULL,
+
+    UNIQUE(project_uid, number),
+    FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
+);"),
+("log_comments",
+"CREATE TABLE log_comments (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_uid INTEGER NOT NULL,
+    user_uid INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    created_on INTEGER NOT NULL,
+
+    FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE,
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
+);"),
+("log_likes",
+"CREATE TABLE log_likes (
+    user_uid INTEGER NOT NULL,
+    log_uid INTEGER NOT NULL,
+    is_like BOOLEAN NOT NULL, -- like or dislike
+    PRIMARY KEY (user_uid, log_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (log_uid) REFERENCES logs(uid) ON DELETE CASCADE
+);"),
+("project_likes",
+"CREATE TABLE project_likes (
+    user_uid INTEGER NOT NULL,
+    project_uid INTEGER NOT NULL,
+    is_like BOOLEAN NOT NULL, -- like or dislike
+    PRIMARY KEY (user_uid, project_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
+);"),
+("user_likes",
+"CREATE TABLE user_likes (
+    user_uid INTEGER NOT NULL,
+    user_profile_uid INTEGER NOT NULL,
+    is_like BOOLEAN NOT NULL, -- like or dislike
+    PRIMARY KEY (user_uid, user_profile_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (user_profile_uid) REFERENCES users(uid) ON DELETE CASCADE
+);"),
+("user_follows",
+"CREATE TABLE user_follows (
+    user_uid INTEGER NOT NULL,
+    user_profile_uid INTEGER NOT NULL,
+    PRIMARY KEY (user_uid, user_profile_uid),
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
+    FOREIGN KEY (user_profile_uid) REFERENCES users(uid) ON DELETE CASCADE
+);")
+].into()});
+
+async fn verify_table_schema(state: &AppState, table_name: &str, expected_sql: &str) -> Option<bool> {
+    let row = sqlx::query("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
+        .bind(table_name)
+        .fetch_optional(&state.db)
+        .await.ok()??;
+    let sql: String = row.get(0);
+    let dialect = sqlparser::dialect::SQLiteDialect {};
+    let expected_ast = sqlparser::parser::Parser::parse_sql(&dialect, expected_sql);
+    if let Err(e) = expected_ast { println!("VERIFY TABLE ERROR: {}", e); return Some(false); }
+    let expected_ast = expected_ast.unwrap();
+    let actual_ast = sqlparser::parser::Parser::parse_sql(&dialect, &sql);
+    if let Err(e) = actual_ast { println!("VERIFY TABLE ERROR: {}", e); return Some(false); }
+    let actual_ast = actual_ast.unwrap();
+    Some(expected_ast == actual_ast)
+}
+
+pub async fn create_and_verify_tables(state: &AppState) -> bool {
+    let mut good = true;
+    for table in TABLES.iter() {
+        match verify_table_schema(state, table.0, table.1).await {
+            Some(false) => {
+                println!("Table {} exists, but has a different CREATE statement:\nRequired:\n{}", table.0, table.1);
+                good = false;
+            },
+            None => {
+                println!("Table {} does not exit. Creating.", table.0);
+                if let Err(e) = sqlx::query(table.1).execute(&state.db).await {
+                    println!("Could not create table {} - {}", table.0, e);
+                    good = false;
+                }
+            },
+            _ => {}
+        }
+    }
+    return good;
+}
+
+// Creators
 
 pub async fn create_log(state: &AppState, project_id: i64, title: &str, number: i64) -> Result<i64, sqlx::Error> {
     let result = sqlx::query(
