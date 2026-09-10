@@ -192,7 +192,7 @@ struct User {
     week_len: i64,
     logsday_weekday: i64,
     schedule_last_changed: i64,
-    email: i64,
+    email: String,
     admin: bool,
     created_on: week::UnixTime,
 }
@@ -488,7 +488,8 @@ async fn get_view_user(session: Session, State(state): State<AppState>, Path(use
     let user = get_or!(db::get_user_by_username(&state, &username).await, msg_html("User does not exist".into()));
     let projects = db::get_user_projects(&state, user.uid).await;
     let owner = authd_uid == user.uid;
-    let following = if authd_uid == 0 || authd_uid == user.uid { None } else { db::is_following_user(&state, authd_uid, user.uid).await.ok() };
+    let authd = authd_uid != 0;
+    let following = if owner || !authd { None } else { db::is_following_user(&state, authd_uid, user.uid).await.ok() };
     return Html(ViewUserTemplate{user, projects, owner, following}.render().unwrap()).into_response();
 }
 
@@ -510,7 +511,8 @@ async fn get_view_project(session: Session, State(state): State<AppState>, Path(
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, msg_html("Project does not exist".into()));
     let logs = db::get_project_logs(&state, project.uid).await;
     let owner = authd_uid == user.uid;
-    let following = db::is_following_project(&state, authd_uid, project.uid).await.ok();
+    let authd = authd_uid != 0;
+    let following = if owner || !authd { None } else { db::is_following_project(&state, authd_uid, project.uid).await.ok() };
     return Html(ViewProjectTemplate{user, project, logs, owner, following}.render().unwrap()).into_response();
 }
 
