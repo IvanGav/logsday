@@ -630,7 +630,7 @@ async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppSta
             let log_content_rendered_path = format!("{}/{}", &log_path, "index.html");
             let html_render = filestuff::render_markdown_to_html(&form.content);
             let linked_size = get_or!(filestuff::count_log_directory_size(&log_path, &html_render), "Something went wrong when looking at embedded files", err);
-            if linked_size > 1024 * 1024 * 1024 { return "Your log must be smaller than 1GB".into_response(); }
+            if linked_size > 10 * 1024 * 1024 * 1024 { return "Your log must be smaller than 10GB".into_response(); }
             match db::create_log(&state, project.uid, &form.title, log_number).await {
                 Ok(_) => {
                     if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return "Couldn't create log dir".into_response(); }
@@ -778,7 +778,7 @@ async fn post_update_comment(AuthdUser(user, _tz): AuthdUser, State(state): Stat
 
 #[derive(TryFromMultipart)]
 struct LogMediaUploadRequest {
-    #[form_data(field_name = "file", limit = "1GB")]
+    #[form_data(field_name = "file", limit = "5GB")]
     file: FieldData<Bytes>,
 }
 
