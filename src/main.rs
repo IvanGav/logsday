@@ -80,14 +80,13 @@ async fn main() {
     let state = AppState { db: db_pool, tx };
 
     let args: Vec<String> = std::env::args().collect();
-
-    if !args.contains(&"no-sql-verify".to_string()) {
-        if !db::create_and_verify_tables(&state).await {
+    if !db::create_and_verify_tables(&state).await {
+        if args.contains(&"no-error-on-sql-verify".to_string()) {
+            println!("sql tables didn't match; continuing...");
+        } else {
             println!("ERROR: Please fix the sql tables");
             return;
         }
-    } else {
-        println!("Not verifying sql tables.");
     }
 
     // Thread that compresses videos

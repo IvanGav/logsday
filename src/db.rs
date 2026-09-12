@@ -110,7 +110,7 @@ fn schemas_match(sql1: &str, sql2: &str) -> bool {
         table1.constraints.sort();
         table2.columns.sort();
         table2.constraints.sort();
-        return table1 == table2;
+        return table1.columns == table2.columns && table1.constraints == table2.constraints; // for now only compare these two, as I don't need the tables to be perfectly identical, just that the right columns exist
     }
     false
 }
