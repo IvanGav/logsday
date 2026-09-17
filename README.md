@@ -155,9 +155,6 @@ CREATE TABLE project_follows (
 ```
 
 ## TODO list (no particular order)
-- Improve comments
-	- Let reply to comments
-	- Add comments to user/project pages
 - Add updates (`{last_log#}.{update#}`)
 - Highlight code blocks in Rust
 - Add tags to logs/projects/users
@@ -166,6 +163,3 @@ CREATE TABLE project_follows (
 - Add "report" button
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox
-- Make phone layout compatible
-- Fix Bugs:
-  - When modifying text in markdown editor, if text is long and md side scrolled down, it will jump up.

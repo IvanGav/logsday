@@ -335,7 +335,8 @@ function toggleSidebar() {
 function updatePreview(markdownInput) {
     const rawMarkdown = markdownInput.value;
     const markdownPreview = document.getElementById('markdown-preview');
-    markdownPreview.innerHTML = marked.parse(rawMarkdown);
+    const renderedHTML = marked.parse(rawMarkdown);
+    markdownPreview.innerHTML = renderedHTML;
     markdownPreview.querySelectorAll('pre code').forEach((el) => {
         hljs.highlightElement(el);
     });

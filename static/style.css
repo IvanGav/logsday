@@ -67,6 +67,7 @@ form hr {
     background-color: var(--accent);
     align-items: center;
     margin-bottom: 10px;
+    flex-wrap: wrap; /* TODO i don't think that worked before hmmm */
 }
 .navitem {
     padding: 6px 12px;
@@ -198,11 +199,11 @@ form hr {
 /* Log */
 
 .log-content img {
-    max-width: 100%;
+    max-width: 90%;
     height: auto;
     max-height: 70vh;
     display: block;
-    margin: 1.5rem /* auto */;
+    margin: 1.5rem;
 }
 .log-content video {
     max-width: 70%;
@@ -274,8 +275,8 @@ form hr {
     border: 1px solid #ccc;
     background-color: var(--page-bg);
     border-radius: 4px;
-    resize: none; /* Disables manual resizing handles which would break layout */
-    overflow-y: auto; /* Separate individual scrollbars */
+    resize: none;
+    overflow-y: auto;
 }
 
 .preview-box { 
@@ -346,4 +347,45 @@ form hr {
 
 .clickable-image:hover {
     filter: brightness(75%);
+}
+
+@media (max-width: 1024px) {
+    #show-files-button {
+        display: none;
+    }
+    #media-sidebar {
+        display: none;
+    }
+}
+
+@media (max-width: 630px) {
+    #show-files-button {
+        display: none;
+    }
+    #media-sidebar {
+        display: none;
+    }
+    .editor-layout-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        height: auto;
+    }
+    .editor-top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .main-editor-area {
+        overflow: auto;
+        width: 80%;
+    }
+    .workspace-split {
+        flex-direction: column;
+        flex-grow: auto;
+        height: auto;
+    }
+    .pane {
+        height: 90vh;
+        width: 100%;
+    }
 }
