@@ -11,7 +11,7 @@ You can upload a log once a day. You can see other people's logs. You can invite
 - `Askama` templates (`#[template(path = "index.html")]`) live in `./templates` directory
   - Note that `Askama` templates are not *actually* html files. They're.. templates. With `{{ ... }}` being replaced with stuff before being sent to the client.
 - The database is `./sqlite.db`. Needs to be created manually. You will also have to create all tables manually (listed in `SQLite Tables` section).
-- You have to have `nice` and `ffmpeg` cmd utilities instealled.
+- You have to have `nice` and `ffmpeg` cmd utilities installed.
 
 ## Tech Stack
 
