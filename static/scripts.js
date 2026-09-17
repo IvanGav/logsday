@@ -365,6 +365,7 @@ function setupPreview() {
 
 function setupNewlogListeners() {
     const dropZone = document.getElementById('drop-zone');
+    const markdownBox = document.getElementById('markdown-input');
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, e => e.preventDefault(), false);
     });
@@ -378,6 +379,14 @@ function setupNewlogListeners() {
         const dt = e.dataTransfer;
         const files = dt.files;
         if (files.length > 0) {
+            uploadAndInsertMedia(files);
+        }
+    });
+    markdownBox.addEventListener('paste', (event) => {
+        const clipboardData = event.clipboardData;
+        const files = clipboardData.files;
+        if (files.length > 0) {
+            event.preventDefault();
             uploadAndInsertMedia(files);
         }
     });
