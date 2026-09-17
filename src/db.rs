@@ -95,6 +95,15 @@ const TABLES: std::sync::LazyLock<std::collections::HashMap<&str, &str>> = std::
     PRIMARY KEY (user_uid, project_uid),
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
+);"),
+("reports",
+"CREATE TABLE reports (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_uid INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    url TEXT NOT NULL,
+    created_on INTEGER NOT NULL,
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
 );")
 ].into()});
 
@@ -891,4 +900,17 @@ pub async fn get_all_user_emails_whose_logsday_is_today(state: &AppState) -> Vec
         println!("DB ERROR: {}", e);
     }
     return users.unwrap_or(vec![]);
+}
+
+pub async fn record_report(state: &AppState, user_uid: i64, message: &str, url: &str) -> Result<(), sqlx::Error> {
+    let _ = sqlx::query::<_>(
+        "INSERT INTO reports (user_uid, message, url, created_on) VALUES (?, ?, ?, ?)"
+    )
+        .bind(user_uid)
+        .bind(message)
+        .bind(url)
+        .bind(week::now())
+        .execute(&state.db)
+        .await?;
+    Ok(())
 }

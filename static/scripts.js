@@ -319,6 +319,20 @@ function embedMedia(path) {
     updatePreview(markdownInput);
 }
 
+function report(event) {
+    const message = prompt('You can report anything: bug, inapropriate username, feature requrst, etc.\nThis page url will be included in the report.');
+    if (!message) {
+        event.preventDefault();
+    } else {
+        event.detail.ctx.request.body.append("message", message);
+        event.detail.ctx.request.body.append("path", window.location.pathname);
+    }
+}
+
+function report_done(event) {
+    alert(event.detail.ctx.text);
+}
+
 // sidebar
 function toggleSidebar() {
     const sidebar = document.getElementById('media-sidebar');

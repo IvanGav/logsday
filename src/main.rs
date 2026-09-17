@@ -114,6 +114,7 @@ async fn main() {
         .route("/logout", get(get_logout).post(post_logout))
         .route("/mdguide", get(get_mdguide))
         .route("/credits", get(get_credits))
+        .route("/report", post(post_report))
         .route("/account", get(get_account))
         .route("/account/update/displayname", post(post_update_displayname))
         .route("/account/update/email", post(post_update_email))
@@ -951,6 +952,31 @@ async fn post_log_comments(
     match res {
         Ok(_) => return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response(),
         Err(e) => { println!("DB ERROR WHEN CREATING A COMMENT: {e}"); return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create comment").into_response() },
+    }
+}
+
+// Route /report
+
+#[derive(Deserialize)]
+struct ReportForm {
+    pub message: String,
+    pub path: String,
+}
+
+async fn post_report(session: Session, State(state): State<AppState>, Form(form): Form<ReportForm>) -> impl IntoResponse {
+    let user_uid = session.get::<i64>("uid").await.unwrap_or(None);
+    match user_uid {
+        Some(user_uid) => {
+            match db::record_report(&state, user_uid, &form.message, &form.path).await {
+                Ok(()) => {
+                    let username = match db::get_user(&state, user_uid).await { Some(user) => user.username, None => "USER NOT FOUND".to_string() };
+                    println!("Report received from {} on {}: {}", username, form.path, form.message);
+                    return "Submitted. Thank you.";
+                },
+                Err(e) => { println!("DB ERROR: {}", e); return "Database Error."}
+            }
+        }
+        None => { return "You're not signed in."; }
     }
 }
 

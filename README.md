@@ -152,6 +152,15 @@ CREATE TABLE project_follows (
     FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE,
     FOREIGN KEY (project_uid) REFERENCES projects(uid) ON DELETE CASCADE
 );
+
+CREATE TABLE reports (
+    uid INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_uid INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    url TEXT NOT NULL,
+    created_on INTEGER NOT NULL,
+    FOREIGN KEY (user_uid) REFERENCES users(uid) ON DELETE CASCADE
+);
 ```
 
 ## TODO list (no particular order)
@@ -160,6 +169,5 @@ CREATE TABLE project_follows (
 - Add tags to logs/projects/users
 - Search logs/projects/users by name, tags
 - Make/follow groups
-- Add "report" button
 - Add support for mov video files (apple format, not native to browsers, probably convert to mp4)
 - Inbox

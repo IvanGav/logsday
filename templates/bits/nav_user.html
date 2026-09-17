@@ -2,6 +2,7 @@
 <a class="navitem" href="/u/{{ user.username }}">Projects</a>
 <a class="navitem" href="/mdguide">.md Guide</a>
 <a class="navitem" href="/credits">Credits</a>
+<a class="navitem" hx-post="/report" hx-trigger="click" hx-swap="none" hx-on::config:request="report(event)" hx-on::after:swap="report_done(event)">Report</a>
 <span class="max-fill"></span>
 {% if self::week::is_logsday_tz(*user.week_len, *user.logsday_weekday, *tz) %}
     <span style="margin-right:1rem">Logsday ends: <span id="countdown" time-duration="{{ self::week::time_left_today_tz(*tz) }}"></span></span>
