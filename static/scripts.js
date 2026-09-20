@@ -298,18 +298,27 @@ async function renderCreatedOn(div) {
     const unixUtc = parseInt(div.getAttribute("unix-utc"), 10);
     if(isNaN(unixUtc)) return;
     try {
+        // Try temporal, because I'm cool like that
         const instant = Temporal.Instant.fromEpochMilliseconds(unixUtc * 1000);
         const dateString = instant.toLocaleString(navigator.language, {
-            // timeZone: 'UTC',
             month: 'short',
             day: 'numeric',
             year: 'numeric'
-            // hour: 'numeric',
-            // minute: '2-digit'
         });
         div.innerText = dateString;
     } catch(e) {
-        console.log("Temporal formatting failed:", e);
+        try {
+            const date = new Date(unixUtc * 1000);
+            const dateString = date.toLocaleDateString(navigator.language, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            div.innerText = dateString;
+        } catch (e) {
+            console.error("Date formatting failed:", e);
+            div.innerText = "JS date error";
+        }
     }
 }
 

@@ -24,7 +24,7 @@ mod newlog;
 mod password;
 mod email;
 
-const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satruday", "Sunday"];
+const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 macro_rules! get_or {
     ($expr:expr, $fallback:expr) => {
