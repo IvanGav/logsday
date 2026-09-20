@@ -40,6 +40,7 @@
             <a class="log-listing" href="/u/{{ user.username }}/{{ project.slug }}/{{ log.number }}">
                 <p>Log {{ log.number }}: </p>
                 <p>{{ log.title }}</p>
+                <span class="date">Created on: <span unix-utc="{{ log.created_on }}" hx-on:load="renderCreatedOn(this)"></span></span>
             </a>
         {% else %}
             {% if owner %}

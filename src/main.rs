@@ -144,6 +144,7 @@ async fn main() {
         .route("/u/{username}", get(get_view_user))
         .route("/u/{username}/{project_slug}", get(get_view_project))
         .route("/u/{username}/{project_slug}/{log_number}", get(get_view_log))
+        .route("/reports", get(get_reports))
         .route("/like/{ty}/{uid}", get(get_like))
         .route("/like/{ty}/{uid}/{action}", post(post_like))
         .route("/favicon.ico", get(get_favicon))
@@ -1227,6 +1228,20 @@ async fn post_update_project_thumbnail(AuthdUser(user, _tz): AuthdUser, State(st
     } else {
         return "Could not write file".into_response();
     }
+}
+
+// Route /reports
+
+#[derive(Template)]
+#[template(path = "viewreports.html")]
+struct ViewReportsTemplate {
+    reports: Vec<db::ReportEntry>
+}
+
+async fn get_reports(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>) -> impl IntoResponse {
+    if !user.admin { return msg_html("you're not admin".to_string()).into_response(); }
+    let reports = db::get_reports(&state).await;
+    return Html(ViewReportsTemplate{reports}.render().unwrap()).into_response();
 }
 
 fn _time<F: Fn() -> T, T>(f: F) -> T {

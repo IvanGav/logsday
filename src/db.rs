@@ -914,3 +914,31 @@ pub async fn record_report(state: &AppState, user_uid: i64, message: &str, url: 
         .await?;
     Ok(())
 }
+
+#[derive(Debug, Default, sqlx::FromRow)]
+pub struct ReportEntry {
+    pub uid: i64,
+    pub username: String,
+    pub displayname: String,
+    pub url: String,
+    pub message: String,
+    pub created_on: week::UnixTime,
+}
+
+pub async fn get_reports(state: &AppState) -> Vec<ReportEntry> {
+    let reports = sqlx::query_as::<_,ReportEntry>(r#"
+        SELECT
+            r.uid,
+            u.username,
+            u.displayname,
+            r.url,
+            r.message,
+            r.created_on
+        FROM reports r
+        JOIN users u ON u.uid = r.user_uid
+        ORDER BY r.created_on DESC
+        "#)
+        .fetch_all(&state.db)
+        .await.unwrap_or_default();
+    reports
+}

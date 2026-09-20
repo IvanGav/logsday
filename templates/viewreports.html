@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="flex-col">
+        {% for r in reports %}
+            <p>Report #{{ r.uid }} from <a href="/u/{{ r.username }}">{{ r.displayname }} ({{ r.username }})</a> on <span unix-utc="{{ r.created_on }}" hx-on:load="renderCreatedOn(this)"></span> for <a href="{{ r.url }}">{{ r.url }}</a> - Message: {{ r.message }}</p>
+            <br>
+        {% endfor %}
+    </div>
+{% endblock %}
