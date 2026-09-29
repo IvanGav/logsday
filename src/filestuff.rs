@@ -189,8 +189,13 @@ pub fn count_log_directory_size<P: AsRef<Path>>(dir_path: P, log_html_content: &
 pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
     let dir = dir_path.as_ref();
     let index_path = dir.join("index.html");
+    if fs::metadata(dir).unwrap().modified().unwrap().elapsed().unwrap() < std::time::Duration::from_hours(24) {
+        println!("CLEANUP: directory has been modified in the past 24 hours, skipping: {:?} (last modified: {:?})", dir, fs::metadata(dir).unwrap().modified().unwrap().elapsed().unwrap());
+        return Ok(());
+    }
     // No index.html = log wasn't uploaded in the end; just delete the entire dir
     if !index_path.exists() {
+        println!("CLEANUP: directory does not have index.html, deleting: {:?}", dir);
         fs::remove_dir_all(dir)?;
         return Ok(());
     }
@@ -215,6 +220,7 @@ pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Resu
             if file_name == "index.html" || file_name == "index.md" || get_extension(&file_name) == Some("tmp") { continue; }
             let file_name = askama::filters::urlencode(file_name).unwrap().to_string();
             if !linked_files.contains(&file_name) {
+                println!("CLEANUP: removing unlinked file: {:?}/{}", dir, &file_name);
                 fs::remove_file(file_path)?;
                 linked_files.remove(&file_name);
             }
