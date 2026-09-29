@@ -271,9 +271,11 @@ pub async fn compress_video(CompressVideoJob{path, created_on}: CompressVideoJob
                         } else {
                             println!("original len = {}, compressed len = {}", metadata.len(), fs::metadata(&tmp_file).unwrap().len());
                         }
+                    } else {
+                        println!("original file was replaced");
                     }
-                }
-            }
+                } else { println!("Could not get modified date"); }
+            } else { println!("Could not get metadata"); }
             let _ = tokio::fs::remove_file(tmp_file).await;
             println!("COMPRESS WARN: compressed success, but original file was deleted or replaced, or the compressed file is larger: {}", path);
         }

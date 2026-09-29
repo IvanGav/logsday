@@ -74,7 +74,7 @@ async fn main() {
     let session_store = MemoryStore::default(); // store user sessions to memory for now
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(if cfg!(debug_assertions) { false } else { true })
-        .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
+        .with_expiry(Expiry::OnInactivity(time::Duration::days(30)));
 
     let (tx, mut rx) = mpsc::channel::<filestuff::CompressVideoJob>(100);
     let state = AppState { db: db_pool, tx };
@@ -827,7 +827,8 @@ async fn handle_upload(user: &User, tz: i64, project: &Project, log_num: i64, da
     if filestuff::media_type(&file_name) == MediaType::Video {
         // put a job to compress
         println!("COMPRESS QUEUING {}", &log_file_path);
-        let job = filestuff::CompressVideoJob { path: log_file_path.clone(), created_on: SystemTime::now() };
+        let created_on = get_or!(get_or!(fs::metadata(&log_file_path), "File error 1", err).modified(), "File error 2", err);
+        let job = filestuff::CompressVideoJob { path: log_file_path.clone(), created_on };
         match state.tx.send(job).await {
             Ok(_) => {}
             Err(_) => { println!("Could not queue a video to compress: {}", &log_file_path); }
