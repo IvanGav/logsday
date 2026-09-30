@@ -3,6 +3,7 @@ use image::{AnimationDecoder, DynamicImage, ImageFormat, codecs::gif::GifDecoder
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use tokio::process::Command;
 use webp_animation::prelude::Encoder;
+use tracing::{info, error, warn, instrument};
 
 const INVALID_FILENAME_CHARACTERS: [char; 10] = ['*', '"', '/', '\\', '<', '>', ':', '|', '?', '\0'];
 
@@ -34,13 +35,14 @@ pub fn media_type(filename: &str) -> MediaType {
 
 /// Given a mime type, return its kind
 /// [list](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/MIME_types/Common_types)
+#[instrument]
 pub fn mime_media_type(mime_type: &str) -> MediaType {
     let mime_type = mime_type.split_once(';').unwrap_or((mime_type, "")).0; // get rid of parameters: `type/subtype;parameter=value`
     match mime_type.to_lowercase().as_str() {
         "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/avif" | "image/x-icon" /* | "image/svg+xml" */ => MediaType::Image,
         "video/mp4" | "video/webm" /* | "video/quicktime" */ => MediaType::Video,
         "audio/mpeg" | "audio/wav" | "audio/ogg" | "audio/webm" => MediaType::Audio,
-        u => { println!("{u}"); MediaType::Unsupported },
+        u => { warn!("{u}"); MediaType::Unsupported },
     }
 }
 
@@ -64,9 +66,11 @@ pub fn normalize_extension(filename: &str) -> String {
     return split.0.to_string() + "." + &ext;
 }
 
+#[instrument(skip_all)]
 pub fn convert_to_webp(raw_bytes: &[u8]) -> Option<Vec<u8>> {
     let format = image::guess_format(raw_bytes).ok()?;
     if format == ImageFormat::WebP {
+        info!("already webp");
         return Some(raw_bytes.to_owned());
     } else if format == ImageFormat::Gif {
         // Written by AI (and edited by me, but not significantly; I still don't know if there's an easier way to do this)
@@ -87,12 +91,14 @@ pub fn convert_to_webp(raw_bytes: &[u8]) -> Option<Vec<u8>> {
             current_timestamp_ms += delay_ms as i32;
         }
         let webp_data = encoder.finalize(current_timestamp_ms).ok()?;
+        info!("wrote gif image");
         return Some(webp_data.to_vec());
     } else {
         let img = image::load_from_memory(raw_bytes).ok()?;
         let img = img.thumbnail(400, 400);
         let mut webp_buffer = Vec::new();
         img.write_to(&mut Cursor::new(&mut webp_buffer), ImageFormat::WebP).ok()?;
+        info!("wrote non-gif image");
         return Some(webp_buffer);
     }
 }
@@ -186,16 +192,17 @@ pub fn count_log_directory_size<P: AsRef<Path>>(dir_path: P, log_html_content: &
 }
 
 /// Clean up the log directory - only keep the media files linked in index.md/index.html
-pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Result<()> {
+#[instrument]
+pub async fn cleanup_log_directory<P: AsRef<Path> + std::fmt::Debug>(dir_path: P) -> std::io::Result<()> {
     let dir = dir_path.as_ref();
     let index_path = dir.join("index.html");
     if fs::metadata(dir).unwrap().modified().unwrap().elapsed().unwrap() < std::time::Duration::from_hours(24) {
-        println!("CLEANUP: directory has been modified in the past 24 hours, skipping: {:?} (last modified: {:?})", dir, fs::metadata(dir).unwrap().modified().unwrap().elapsed().unwrap());
+        info!("CLEANUP: directory has been modified in the past 24 hours, skipping: {:?} (last modified: {:?})", dir, fs::metadata(dir).unwrap().modified().unwrap().elapsed().unwrap());
         return Ok(());
     }
     // No index.html = log wasn't uploaded in the end; just delete the entire dir
     if !index_path.exists() {
-        println!("CLEANUP: directory does not have index.html, deleting: {:?}", dir);
+        info!("CLEANUP: directory does not have index.html, deleting: {:?}", dir);
         fs::remove_dir_all(dir)?;
         return Ok(());
     }
@@ -220,7 +227,7 @@ pub async fn cleanup_log_directory<P: AsRef<Path>>(dir_path: P) -> std::io::Resu
             if file_name == "index.html" || file_name == "index.md" || get_extension(&file_name) == Some("tmp") { continue; }
             let file_name = askama::filters::urlencode(file_name).unwrap().to_string();
             if !linked_files.contains(&file_name) {
-                println!("CLEANUP: removing unlinked file: {:?}/{}", dir, &file_name);
+                info!("CLEANUP: removing unlinked file: {:?}/{}", dir, &file_name);
                 fs::remove_file(file_path)?;
                 linked_files.remove(&file_name);
             }
@@ -257,8 +264,9 @@ pub struct CompressVideoJob {
     pub created_on: SystemTime,
 }
 
+#[instrument]
 pub async fn compress_video(CompressVideoJob{path, created_on}: CompressVideoJob) {
-    let ext = match get_extension(&path) { Some(e) => e, None => { println!("COMPRESS FAIL: could not get extension of {}", path); return; }};
+    let ext = match get_extension(&path) { Some(e) => e, None => { warn!("COMPRESS FAIL: could not get extension of {}", path); return; }};
     let status = match ext {
         "mp4" => compress_mp4(&path).await,
         _ => Err(std::io::Error::other(format!("COMPRESS FAIL: not a recognized extension: {}", ext)))
@@ -272,20 +280,20 @@ pub async fn compress_video(CompressVideoJob{path, created_on}: CompressVideoJob
                         // check that the new size is smaller
                         if fs::metadata(&tmp_file).unwrap().len() < metadata.len() {
                             let _ = fs::rename(tmp_file, &path);
-                            println!("COMPRESS SUCCESS: {}", &path);
+                            info!("COMPRESS SUCCESS: {}", &path);
                             return;
                         } else {
-                            println!("original len = {}, compressed len = {}", metadata.len(), fs::metadata(&tmp_file).unwrap().len());
+                            info!("original len = {}, compressed len = {}", metadata.len(), fs::metadata(&tmp_file).unwrap().len());
                         }
                     } else {
-                        println!("original file was replaced");
+                        info!("original file was replaced");
                     }
-                } else { println!("Could not get modified date"); }
-            } else { println!("Could not get metadata"); }
+                } else { warn!("Could not get modified date"); }
+            } else { warn!("Could not get metadata"); }
             let _ = tokio::fs::remove_file(tmp_file).await;
-            println!("COMPRESS WARN: compressed success, but original file was deleted or replaced, or the compressed file is larger: {}", path);
+            info!("COMPRESS: compressed success, but original file was deleted or replaced, or the compressed file is larger: {}", path);
         }
-        Err(e) => { println!("COMPRESS FAIL: {}", e); }
+        Err(e) => { error!("COMPRESS FAIL: {}", e); }
     }
 }
 

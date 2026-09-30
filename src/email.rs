@@ -1,6 +1,7 @@
 use std::process::Stdio;
 
 use tokio::{io::AsyncWriteExt, process::Command};
+use tracing::{info, error, warn, instrument};
 
 use crate::{AppState, db};
 
@@ -13,19 +14,20 @@ pub fn ensure_env_variables() {
     }
 }
 
+#[instrument(skip_all)]
 pub async fn send_emails_to_users(state: &AppState) -> usize {
     let emails = db::get_all_user_emails_whose_logsday_is_today(state).await;
     if cfg!(debug_assertions) {
-        println!("Run in release mode to actually send emails, or change an assert in `email.rs`");
+        info!("Run in release mode to actually send emails, or change an assert in `email.rs`");
         for email in &emails {
-            println!("Would send email to {}", &email);
+            info!("Would send email to {}", &email);
         }
         return emails.len();
     } else {
         let mut sent = 0;
         for email in &emails {
             if let Err(e) = send_gmail(email, "Logsday", "Hey Logger. Logsday.").await {
-                println!("Error sending email to {} - {}", email, e);
+                warn!("Error sending email to {} - {}", email, e);
             } else {
                 sent += 1;
             }
@@ -66,7 +68,7 @@ pub async fn send_gmail(to_email: &str, subject: &str, body_text: &str) -> Resul
 
     let output = child.wait_with_output().await?;
     if !output.status.success() {
-        println!("curl error: {}", String::from_utf8_lossy(&output.stderr));
+        error!("curl error: {}", String::from_utf8_lossy(&output.stderr));
     }
 
     Ok(())

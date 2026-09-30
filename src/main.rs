@@ -14,6 +14,9 @@ use tower_http::normalize_path::NormalizePath;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tokio::sync::mpsc;
 
+use tracing::{info, error, warn, instrument};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 use crate::{filestuff::MediaType, newlog::{NewlogResult, error_json}};
 
 mod db;
@@ -31,6 +34,7 @@ macro_rules! get_or {
         match $expr {
             Some(val) => val,
             None => {
+                warn!("{:?}", $fallback);
                 return $fallback.into_response();
             }
         }
@@ -39,7 +43,7 @@ macro_rules! get_or {
         match $expr {
             Ok(val) => val,
             Err(e) => {
-                println!("-- {}: {e}", line!());
+                warn!("{:?}", e);
                 return $fallback.into_response();
             }
         }
@@ -60,7 +64,7 @@ pub fn hx_refresh() -> impl IntoResponse {
     return (StatusCode::OK, [("HX-Refresh", "true")], "");
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct AppState {
     db: SqlitePool,
     tx: mpsc::Sender<filestuff::CompressVideoJob>,
@@ -68,8 +72,16 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "logsday=info,axum=warn,hyper=warn".into()),
+        )
+        .with(tracing_subscriber::fmt::layer().compact())
+        .init();
+
     let db_pool = SqlitePool::connect("sqlite:sqlite.db").await.expect("Could not connect to database. Please create `sqlite.db` database.");
-    println!("Running release: {}", if cfg!(debug_assertions) { false } else { true });
+    info!("Running release: {}", if cfg!(debug_assertions) { false } else { true });
     email::ensure_env_variables();
     let session_store = MemoryStore::default(); // store user sessions to memory for now
     let session_layer = SessionManagerLayer::new(session_store)
@@ -82,9 +94,9 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if !db::create_and_verify_tables(&state).await {
         if args.contains(&"no-error-on-sql-verify".to_string()) {
-            println!("sql tables didn't match; continuing...");
+            warn!("sql tables didn't match; continuing...");
         } else {
-            println!("ERROR: Please fix the sql tables");
+            error!("ERROR: Please fix the sql tables");
             return;
         }
     }
@@ -94,15 +106,15 @@ async fn main() {
         while let Some(job) = rx.recv().await {
             let metadata = match fs::metadata(&job.path) {
                 Ok(meta) => meta,
-                Err(_) => { println!("COMPRESS WARN: file was deleted {}", job.path); continue; }
+                Err(_) => { warn!("COMPRESS: file was deleted {}", job.path); continue; }
             };
             if let Ok(modified) = metadata.modified() {
-                if modified > job.created_on { println!("COMPRESS WARN: file was updated {:?}", job.path); continue; }
+                if modified > job.created_on { warn!("COMPRESS: file was updated {:?}", job.path); continue; }
             }
-            println!("COMPRSS START: {}", job.path);
+            info!("COMPRSS START: {}", job.path);
             filestuff::compress_video(job).await;
         }
-        println!("Shutting down compression thread");
+        warn!("Shutting down compression thread");
     });
 
     let app = Router::new()
@@ -162,15 +174,15 @@ async fn main() {
     let cleanup_job = Job::new_async("0 0 0 * * *", move |_uuid, _l| {
         let state = state.clone();
         Box::pin(async move {
-            println!("STARTED CLEANUP");
+            info!("STARTED DAILY CLEANUP");
             if let Err(e) = filestuff::cleanup_all_log_directories().await {
-                println!("FAILED CLEANUP - {e}");
+                warn!("FAILED DAILY CLEANUP - {e}");
             } else {
-                println!("FINISHED CLEANUP");
+                info!("FINISHED DAILY CLEANUP");
             }
-            println!("STARTED SENDING EMAILS");
+            info!("STARTED SENDING EMAILS");
             let sent = email::send_emails_to_users(&state).await;
-            println!("FINISHED SENDING EMAILS - SENT {sent} EMAILS");
+            info!("FINISHED SENDING EMAILS - SENT {sent} EMAILS");
         })
     })
     .unwrap();
@@ -178,7 +190,7 @@ async fn main() {
     sched.start().await.unwrap();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("Serving to `http://localhost:3000`");
+    info!("Started server on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -312,11 +324,7 @@ async fn landing(session: Session, State(state): State<AppState>) -> impl IntoRe
     let news = if authd_uid == 0 { None } else { Some(db::get_news_for_user(&state, authd_uid).await) };
     let global_news = db::get_global_news(&state).await;
     let display_users = db::get_all_users(&state).await;
-    let render = LandingTemplate { display_users, news, global_news }.render();
-    if let Ok(render) = render {
-        return Html(render).into_response();
-    }
-    return generic_error().into_response();
+    return Html(LandingTemplate{ display_users, news, global_news }.render().unwrap()).into_response();
 }
 
 // Route /favicon.ico
@@ -353,6 +361,7 @@ struct SignupSubmission {
     tz: i64,
 }
 
+#[instrument(skip_all)]
 async fn post_signup(
     session: Session,
     State(state): State<AppState>,
@@ -370,30 +379,31 @@ async fn post_signup(
     let password = get_or!(password::hash(&form.password), "Could not hash password; should not be possible", err);
     if !password::verify(&form.password, &password) { return "Could not verify password after hashing it; should not be possible".into_response(); }
     let result = db::create_user(&state, &username, &displayname, &password, form.week_len, logsday_weekday).await;
+    info!("username = {}", &username);
     match result {
         Ok(_) => {
             if let Ok(_) = fs::create_dir_all(format!("uploads/users/{}", username)) {
+                info!("Created user directory");
                 let pfp_path = format!("uploads/users/{}/pfp.webp", &username);
                 let default_pfp = get_or!(fs::read("static/favicon.ico"), (StatusCode::INTERNAL_SERVER_ERROR, "Could not find favicon"), err);
                 let webp_img = get_or!(filestuff::convert_to_webp(&default_pfp), (StatusCode::INTERNAL_SERVER_ERROR, "Could not convert to webp"));
-                if let Err(_) = fs::write(pfp_path, &webp_img) { return (StatusCode::INTERNAL_SERVER_ERROR, "Could not write file").into_response(); }
-                let u = db::get_user_by_username(&state, &username).await;
-                if let None = u { return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating").into_response(); }
-                let uid = u.unwrap().uid;
-                session.insert("uid", uid).await.unwrap();
+                if let Err(e) = fs::write(pfp_path, &webp_img) { error!("Could not write pfp file: {}", e); return (StatusCode::INTERNAL_SERVER_ERROR, "Could not write file").into_response(); }
+                let u = get_or!(db::get_user_by_username(&state, &username).await, (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't find user after creating"));
+                session.insert("uid", u.uid).await.unwrap();
                 session.insert("tz", week::ensure_tz_valid(form.tz)).await.unwrap();
                 return hx_redirect("/u").into_response();
             } else {
+                error!("Could not create user directory");
                 return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create user directory").into_response();
             }
         }
         Err(e) => {
-            println!("{}", e);
             if let Some(db_err) = e.as_database_error() {
                 if db_err.is_unique_violation() {
                     return (StatusCode::BAD_REQUEST, "Username already taken").into_response();
                 }
             }
+            error!("Could not create user: {}", e);
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database fail").into_response();
         }
     }
@@ -420,6 +430,7 @@ struct LoginSubmission {
     tz: i64,
 }
 
+#[instrument(skip_all)]
 async fn post_login(
     session: Session,
     State(state): State<AppState>,
@@ -428,6 +439,7 @@ async fn post_login(
     let user = db::get_user_by_username(&state, &form.username).await;
     if let Some(u) = user {
         if password::verify(&form.password, &u.password) {
+            info!("user {} logged in", form.username);
             session.insert("uid", u.uid).await.unwrap();
             session.insert("tz", week::ensure_tz_valid(form.tz)).await.unwrap();
             return hx_redirect("/u").into_response();
@@ -567,6 +579,7 @@ struct NewProjectRequest {
     thumbnail: FieldData<Bytes>,
 }
 
+#[instrument(skip(state, data))]
 async fn post_new_project(State(state): State<AppState>, AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
     let pslug: &str = if data.slug.len() == 0 { &slug::slug_from(&data.title) } else { &data.slug };
     if data.title.len() > 255 || pslug.len() > 255 { return "title or slug too long".into_response(); }
@@ -578,10 +591,13 @@ async fn post_new_project(State(state): State<AppState>, AuthdUser(user, _tz): A
     let thumbnail_path = format!("{}/{}", &project_path, "thumb.webp");
     let webp_img = get_or!(filestuff::convert_to_webp(thumbnail), "Could not convert to webp");
     if let Ok(_) = db::create_project(&state, user.uid, &data.title, &pslug, &data.description).await {
+        info!("project {} created", &pslug);
         if let Ok(_) = fs::create_dir_all(project_path) {
-            if let Ok(_) = fs::write(thumbnail_path, &webp_img) {
-                return hx_redirect("/u").into_response();
+            if let Err(e) = fs::write(thumbnail_path, &webp_img) {
+                error!("couldn't write thumbnail file: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Could not write image").into_response();
             }
+            return hx_redirect("/u").into_response();
         }
     }
     return generic_error().into_response();
@@ -620,12 +636,13 @@ async fn get_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppStat
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct NewLogRequest {
     title: String,
     content: String,
 }
 
+#[instrument(skip(state, form))]
 async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
     if user.username != username { return "can't create log for a different user".into_response(); }
     if form.title.len() > 255 { return "title too long".into_response(); }
@@ -640,14 +657,14 @@ async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppSta
             if linked_size > 10 * 1024 * 1024 * 1024 { return "Your log must be smaller than 10GB".into_response(); }
             match db::create_log(&state, project.uid, &form.title, log_number).await {
                 Ok(_) => {
-                    if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return "Couldn't create log dir".into_response(); }
-                    if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
-                    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
-                    // if let Err(e) = filestuff::cleanup_log_directory(&log_path).await { println!("couldn't clean up: {}", e); } // automatically, in 1 day
+                    if let Err(e) = fs::create_dir_all(&log_path) { error!("can't create dir: {}", e); return "Couldn't create log dir".into_response(); }
+                    if let Err(e) = fs::write(log_content_path, &form.content) { error!("can't write markdown: {}", e); return "Couldn't write content".into_response(); }
+                    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { error!("can't write html: {}", e); return "Couldn't write rendered content".into_response(); }
+                    info!("Created log");
                     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
                 },
                 Err(e) => {
-                    println!("{} -- project/uid = '{}'/{}, log # = {}", e, project.title, project.uid, log_number);
+                    error!("{} -- project/uid = '{}'/{}, log # = {}", e, project.title, project.uid, log_number);
                     return "Database Error".into_response();
                 }
             }
@@ -690,6 +707,7 @@ async fn get_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppSt
     return Html(UploadLogTemplate{user, project, title: log.title, md, upload_path, files_json_list, exists: true, log_num}.render().unwrap()).into_response();
 }
 
+#[instrument(skip(state, form))]
 async fn post_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
     if user.username != username { return "can't edit log for a different user".into_response(); }
     if form.title.len() > 255 { return "title too long".into_response(); }
@@ -701,57 +719,65 @@ async fn post_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppS
     let html_render = filestuff::render_markdown_to_html(&form.content);
     let linked_size = get_or!(filestuff::count_log_directory_size(&log_path, &html_render), "Something went wrong when looking at embedded files", err);
     if linked_size > 1024 * 1024 * 1024 { return "Your log must be smaller than 1GB".into_response(); }
-    if let Err(e) = db::update_log(&state, log.uid, &form.title).await { println!("{}", e); return "Database error".into_response(); }
+    if let Err(e) = db::update_log(&state, log.uid, &form.title).await { error!("couldn't update log: {}", e); return "Database error".into_response(); }
     // the log must already exist; no need to re-create the log path
-    if let Err(e) = fs::write(log_content_path, &form.content) { println!("{}", e); return "Couldn't write content".into_response(); }
-    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { println!("{}", e); return "Couldn't write rendered content".into_response(); }
-    // if let Err(e) = filestuff::cleanup_log_directory(&log_path).await { println!("{}", e); } // automatically, in 1 day
+    if let Err(e) = fs::write(log_content_path, &form.content) { error!("couldn't write markdown: {}", e); return "Couldn't write content".into_response(); }
+    if let Err(e) = fs::write(log_content_rendered_path, &html_render) { error!("couldn't write html: {}", e); return "Couldn't write rendered content".into_response(); }
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 
 // Route /del/{username}
 
+#[instrument(skip(session, state))]
 async fn post_del_user(session: Session, AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
     if user.username != username { return "You can only delete account you're logged in to.".into_response(); }
     if !db::delete_user(&state, user.uid).await {
+        error!("cannot delete user");
         return "Could not delete user".into_response();
     }
     if let Err(e) = fs::remove_dir_all(format!("uploads/users/{}", user.username)) {
-        println!("{}", e);
+        error!("cannot remove directory: {}", e);
         return "Could not clean up user directory after deletion".into_response();
     }
     let _ = session.remove::<i64>("uid").await;
+    info!("deleted user");
     return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
 }
 
 // Route /del/{username}/{project_slug}
 
+#[instrument(skip(state))]
 async fn post_del_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     if user.username != username { return "You can only delete your project.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     if !db::delete_project(&state, project.uid).await {
+        error!("cannot delete project");
         return "Project does not exist or cannot be deleted".into_response();
     }
     if let Err(e) = fs::remove_dir_all(format!("uploads/users/{}/{}", user.username, &project_slug)) {
-        println!("{}", e);
+        error!("cannot remove directory: {}", e);
         return "Could not clean up uploads directory after deletion".into_response();
     }
+    info!("deleted project");
     return hx_redirect("/u").into_response();
 }
 
 // Route /del/{username}/{project_slug}/{log_number}
 
+#[instrument(skip(state))]
 async fn post_del_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>) -> impl IntoResponse {
     if user.username != username { return "You can only delete your log.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Project does not exist");
     let log = get_or!(db::get_log_by_number(&state, project.uid, log_number).await, "Log does not exist");
     if !db::delete_log(&state, log.uid).await {
+        error!("cannot delete log");
         return "Log does not exist or cannot be deleted".into_response();
     }
     if let Err(e) = fs::remove_dir_all(format!("uploads/users/{}/{}/{}", user.username, &project_slug, log_number)) {
-        println!("{}", e);
+        error!("cannot remove directory: {}", e);
         return "Could not clean up uploads directory after deletion".into_response();
     }
+    info!("deleted log");
     return hx_redirect(&format!("/u/{}/{}", user.username, project_slug)).into_response();
 }
 
@@ -774,8 +800,7 @@ struct UpdateCommentSubmission {
 async fn post_update_comment(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(comment_uid): Path<i64>, Form(UpdateCommentSubmission{ comment }): Form<UpdateCommentSubmission>) -> impl IntoResponse {
     let comment_entry = get_or!(db::get_comment_by_uid(&state, comment_uid).await, "Cannot find comment");
     if user.username != comment_entry.username { return "You can only edit your comments.".into_response(); }
-    if let Err(e) = db::update_comment(&state, comment_entry.uid, &comment).await {
-        println!("Failed to edit comment: {e}");
+    if let Err(_) = db::update_comment(&state, comment_entry.uid, &comment).await {
         return "Database failure".into_response();
     }
     return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response();
@@ -789,6 +814,8 @@ struct LogMediaUploadRequest {
     file: FieldData<Bytes>,
 }
 
+/// return the json of the file data on success; return an error code that will be displayed with js on error
+#[instrument(skip(state, data, user, tz))]
 async fn post_new_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
     if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, error_json("Project does not exist"));
@@ -799,6 +826,7 @@ async fn post_new_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state):
 // Route /u/{username}/{project_slug}/{log_number}/media
 
 /// return the json of the file data on success; return an error code that will be displayed with js on error
+#[instrument(skip(state, data))]
 async fn post_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number)): Path<(String, String, i64)>, data: TypedMultipart<LogMediaUploadRequest>) -> impl IntoResponse {
     if user.username != username { return error_json("Cannot upload for different user").into_response(); }
     if log_number < 0 { return error_json("Why so negative?").into_response(); }
@@ -808,6 +836,7 @@ async fn post_log_media_upload(AuthdUser(user, tz): AuthdUser, State(state): Sta
     return handle_upload(&user, tz, &project, log_number, &data, &state).await.into_response();
 }
 
+#[instrument(skip(state, data))]
 async fn handle_upload(user: &User, tz: i64, project: &Project, log_num: i64, data: &TypedMultipart<LogMediaUploadRequest>, state: &AppState) -> impl IntoResponse {
     if !user.admin && !week::is_logsday_tz(user.week_len, user.logsday_weekday, tz) { return error_json("Not logsday").into_response(); }
     let content_type = get_or!(&data.file.metadata.content_type, (StatusCode::INTERNAL_SERVER_ERROR, error_json("Could not get file type")));
@@ -819,26 +848,29 @@ async fn handle_upload(user: &User, tz: i64, project: &Project, log_num: i64, da
     let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project.slug, &log_num);
     let log_file_path = format!("{}/{}", &log_path, &file_name);
     let log_file_web_path = format!("/uploads/{}/{}/{}/{}", &user.username, &project.slug, &log_num, &file_name);
-    if let Err(e) = fs::create_dir_all(&log_path) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't create log dir")).into_response(); }
+    if let Err(e) = fs::create_dir_all(&log_path) { error!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't create log dir")).into_response(); }
     let current_size = filestuff::get_directory_size_bytes(&log_path).await.unwrap_or(0);
     let incoming_size = data.file.contents.len() as u64;
-    if current_size + incoming_size > 5 * 1024 * 1024 * 1024 { return (StatusCode::INSUFFICIENT_STORAGE, error_json("Cannot upload more than 5GB per log")).into_response(); }
-    if let Err(e) = fs::write(&log_file_path, &data.file.contents) { println!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't write file")).into_response(); }
+    if incoming_size > 1 * 1024 * 1024 * 1024 { warn!("user uploaded file with size={}", incoming_size); }
+    if current_size + incoming_size > 10 * 1024 * 1024 * 1024 { return (StatusCode::INSUFFICIENT_STORAGE, error_json("Cannot upload more than 10GB per log")).into_response(); }
+    if let Err(e) = fs::write(&log_file_path, &data.file.contents) { error!("{}", e); return (StatusCode::INTERNAL_SERVER_ERROR, error_json("can't write file")).into_response(); }
     if filestuff::media_type(&file_name) == MediaType::Video {
         // put a job to compress
-        println!("COMPRESS QUEUING {}", &log_file_path);
-        let created_on = get_or!(get_or!(fs::metadata(&log_file_path), "File error 1", err).modified(), "File error 2", err);
+        info!("COMPRESS QUEUING {}", &log_file_path);
+        let created_on = get_or!(get_or!(fs::metadata(&log_file_path), "Cannot get file metadata", err).modified(), "Cannot get modified date", err);
         let job = filestuff::CompressVideoJob { path: log_file_path.clone(), created_on };
         match state.tx.send(job).await {
             Ok(_) => {}
-            Err(_) => { println!("Could not queue a video to compress: {}", &log_file_path); }
+            Err(_) => { error!("Could not queue a video to compress: {}", &log_file_path); }
         }
     }
+    info!("uploaded file");
     return newlog::file_response(&file_name, incoming_size, &log_file_web_path).into_response();
 }
 
 // Route /del/{username}/{project_slug}/new/{delete_filename}
 
+#[instrument(skip(state))]
 async fn delete_new_log_media(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, delete_filename)): Path<(String, String, String)>) -> impl IntoResponse {
     if user.username != username { return error_json("Can only delete your files").into_response(); }
     if let None = db::get_project_by_slug(&state, user.uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
@@ -849,9 +881,12 @@ async fn delete_new_log_media(AuthdUser(user, _tz): AuthdUser, State(state): Sta
     let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
     let log_file_path = format!("{}/{}", &log_path, &file_name);
     match fs::remove_file(&log_file_path) {
-        Ok(_) => { return (StatusCode::OK, "File deleted successfully").into_response(); },
+        Ok(_) => {
+            info!("deleted file");
+            return (StatusCode::OK, "File deleted successfully").into_response();
+        },
         Err(e) => {
-            println!("Failed to delete file {}: {}", log_file_path, e);
+            error!("Failed to delete file {}: {}", log_file_path, e);
             return (StatusCode::OK, "File already does not exist").into_response();
         }
     }
@@ -859,6 +894,7 @@ async fn delete_new_log_media(AuthdUser(user, _tz): AuthdUser, State(state): Sta
 
 // Route /del/{username}/{project_slug}/{log_number}/{delete_filename}
 
+#[instrument(skip(state))]
 async fn delete_log_media(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_number, delete_filename)): Path<(String, String, i64, String)>) -> impl IntoResponse {
     if user.username != username { return error_json("Can only delete your files").into_response(); }
     if let None = db::get_project_by_slug(&state, user.uid, &project_slug).await { return (StatusCode::BAD_REQUEST, "Project not found").into_response(); }
@@ -869,9 +905,12 @@ async fn delete_log_media(AuthdUser(user, _tz): AuthdUser, State(state): State<A
     let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_number);
     let log_file_path = format!("{}/{}", &log_path, &file_name);
     match fs::remove_file(&log_file_path) {
-        Ok(_) => { return (StatusCode::OK, "File deleted successfully").into_response(); },
+        Ok(_) => {
+            info!("deleted file");
+            return (StatusCode::OK, "File deleted successfully").into_response();
+        },
         Err(e) => {
-            println!("Failed to delete file {}: {}", log_file_path, e);
+            error!("Failed to delete file {}: {}", log_file_path, e);
             return (StatusCode::OK, "File already does not exist").into_response();
         }
     }
@@ -953,7 +992,7 @@ async fn post_log_comments(
     let res = db::create_comment_for_log(&state, log.uid, user.uid, &form.text).await;
     match res {
         Ok(_) => return (StatusCode::OK, [("HX-Trigger", "refreshComments")], "").into_response(),
-        Err(e) => { println!("DB ERROR WHEN CREATING A COMMENT: {e}"); return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create comment").into_response() },
+        Err(e) => { error!("DB ERROR WHEN CREATING A COMMENT: {e}"); return (StatusCode::INTERNAL_SERVER_ERROR, "Could not create comment").into_response() },
     }
 }
 
@@ -972,10 +1011,10 @@ async fn post_report(session: Session, State(state): State<AppState>, Form(form)
             match db::record_report(&state, user_uid, &form.message, &form.path).await {
                 Ok(()) => {
                     let username = match db::get_user(&state, user_uid).await { Some(user) => user.username, None => "USER NOT FOUND".to_string() };
-                    println!("Report received from {} on {}: {}", username, form.path, form.message);
+                    info!("Report received from {} on {}: {}", username, form.path, form.message);
                     return "Submitted. Thank you.";
                 },
-                Err(e) => { println!("DB ERROR: {}", e); return "Database Error."}
+                Err(e) => { error!("DB ERROR: {}", e); return "Database Error."}
             }
         }
         None => { return "You're not signed in."; }
@@ -1024,6 +1063,7 @@ struct UpdatePfpRequest {
     pfp: FieldData<Bytes>,
 }
 
+#[instrument(skip(data))]
 async fn post_update_pfp(AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<UpdatePfpRequest>) -> impl IntoResponse {
     if data.pfp.contents.len() == 0 { return "You did not upload a file.".into_response(); }
     let content_type = data.pfp.metadata.content_type.as_ref().unwrap();
@@ -1039,6 +1079,7 @@ async fn post_update_pfp(AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<U
             return "Could not write file".into_response();
         }
     } else {
+        error!("could not create user directory");
         return "Could not create user directory".into_response();
     }
 }
@@ -1089,29 +1130,30 @@ async fn get_like(session: Session, State(state): State<AppState>, Path((ty, uid
 
 // Route /like/{log|project|user}/{uid}/{like|dislike|unlike}
 
+#[instrument(skip(state))]
 async fn post_like(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((ty, uid, action)): Path<(String, i64, String)>) -> impl IntoResponse {
     match ty.as_ref() {
         "log" => {
             match action.as_ref() {
-                "like" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
-                "dislike" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
-                "unlike" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+                "like" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { error!("DB Error when trying to like: {e}")} }
+                "dislike" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { error!("DB Error when trying to dislike: {e}")} }
+                "unlike" => { if let Err(e) = db::set_log_like(&state, user.uid, uid, None).await { error!("DB Error when trying to unlike: {e}")} }
                 _ => { return "Invalid action".into_response(); }
             }
         }
         "project" => {
             match action.as_ref() {
-                "like" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
-                "dislike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
-                "unlike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+                "like" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { error!("DB Error when trying to like: {e}")} }
+                "dislike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { error!("DB Error when trying to dislike: {e}")} }
+                "unlike" => { if let Err(e) = db::set_project_like(&state, user.uid, uid, None).await { error!("DB Error when trying to unlike: {e}")} }
                 _ => { return "Invalid action".into_response(); }
             }
         }
         "user" => {
             match action.as_ref() {
-                "like" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { println!("DB Error when trying to like: {e}")} }
-                "dislike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { println!("DB Error when trying to dislike: {e}")} }
-                "unlike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, None).await { println!("DB Error when trying to unlike: {e}")} }
+                "like" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:true})).await { error!("DB Error when trying to like: {e}")} }
+                "dislike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, Some(db::Like{is_like:false})).await { error!("DB Error when trying to dislike: {e}")} }
+                "unlike" => { if let Err(e) = db::set_user_like(&state, user.uid, uid, None).await { error!("DB Error when trying to unlike: {e}")} }
                 _ => { return "Invalid action".into_response(); }
             }
         }
@@ -1122,33 +1164,37 @@ async fn post_like(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState
 
 // Route /follow/{username}
 
+#[instrument(skip(state))]
 async fn post_follow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
     let err = db::follow_user(&state, user.uid, &username).await;
-    if let Err(err) = err { println!("Could not follow - {}", err); }
+    if let Err(err) = err { error!("Could not follow - {}", err); }
     return hx_refresh();
 }
 
 // Route /unfollow/{username}
 
+#[instrument(skip(state))]
 async fn post_unfollow_user(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path(username): Path<String>) -> impl IntoResponse {
     let err = db::unfollow_user(&state, user.uid, &username).await;
-    if let Err(err) = err { println!("Could not unfollow - {}", err); }
+    if let Err(err) = err { error!("Could not unfollow - {}", err); }
     return hx_refresh();
 }
 
 // Route /follow/{username}/{project_slug}
 
+#[instrument(skip(state))]
 async fn post_follow_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     let err = db::follow_project(&state, user.uid, &username, &project_slug).await;
-    if let Err(err) = err { println!("Could not follow - {}", err); }
+    if let Err(err) = err { error!("Could not follow - {}", err); }
     return hx_refresh();
 }
 
 // Route /unfollow/{username}
 
+#[instrument(skip(state))]
 async fn post_unfollow_project(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>) -> impl IntoResponse {
     let err = db::unfollow_project(&state, user.uid, &username, &project_slug).await;
-    if let Err(err) = err { println!("Could not unfollow - {}", err); }
+    if let Err(err) = err { error!("Could not unfollow - {}", err); }
     return hx_refresh();
 }
 
@@ -1172,10 +1218,11 @@ struct FormUpdateTitle {
     title: String,
 }
 
+#[instrument(skip(state))]
 async fn post_update_project_title(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateTitle>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
-    if let Err(e) = db::update_project_title(&state, project.uid, &form.title).await { println!("{e}"); return "Database error".into_response(); }
+    if let Err(e) = db::update_project_title(&state, project.uid, &form.title).await { error!("{e}"); return "Database error".into_response(); }
     return hx_refresh().into_response();
 }
 
@@ -1202,7 +1249,7 @@ struct FormUpdateDescription {
 async fn post_update_project_description(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateDescription>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
-    if let Err(e) = db::update_project_description(&state, project.uid, &form.description).await { println!("{e}"); return "Database error".into_response(); }
+    if let Err(e) = db::update_project_description(&state, project.uid, &form.description).await { error!("{e}"); return "Database error".into_response(); }
     return hx_refresh().into_response();
 }
 
@@ -1214,6 +1261,7 @@ struct FormUpdateThumbnail {
     thumb: FieldData<Bytes>,
 }
 
+#[instrument(skip(data, state))]
 async fn post_update_project_thumbnail(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, data: TypedMultipart<FormUpdateThumbnail>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
     if data.thumb.contents.len() == 0 { return "You did not upload a file.".into_response(); }
@@ -1225,8 +1273,10 @@ async fn post_update_project_thumbnail(AuthdUser(user, _tz): AuthdUser, State(st
 
     let webp_img = get_or!(filestuff::convert_to_webp(&data.thumb.contents), "Could not convert to webp");
     if let Ok(_) = fs::write(thumb_path, &webp_img) {
+        info!("Updated project thumbnail");
         return (StatusCode::OK, [("HX-Refresh", "true")], "").into_response();
     } else {
+        info!("Cannot write project thumbnail");
         return "Could not write file".into_response();
     }
 }

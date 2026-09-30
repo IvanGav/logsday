@@ -1,4 +1,5 @@
 use sqlx::Row;
+use tracing::error;
 
 use crate::{AppState, Comment, LogEntry, Project, User, slug, week};
 
@@ -138,13 +139,13 @@ pub async fn create_and_verify_tables(state: &AppState) -> bool {
     for table in TABLES.iter() {
         match verify_table_schema(state, table.0, table.1).await {
             Some(false) => {
-                println!("Table {} exists, but has a different CREATE statement:\nRequired:\n{}", table.0, table.1);
+                error!("Table {} exists, but has a different CREATE statement:\nRequired:\n{}", table.0, table.1);
                 good = false;
             },
             None => {
-                println!("Table {} does not exit. Creating.", table.0);
+                error!("Table {} does not exit. Creating.", table.0);
                 if let Err(e) = sqlx::query(table.1).execute(&state.db).await {
-                    println!("Could not create table {} - {}", table.0, e);
+                    error!("Could not create table {} - {}", table.0, e);
                     good = false;
                 }
             },
@@ -224,7 +225,7 @@ pub async fn delete_user(state: &AppState, user_uid: i64) -> bool {
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
         return false;
     }
     return true;
@@ -237,7 +238,7 @@ pub async fn delete_project(state: &AppState, project_uid: i64) -> bool {
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
         return false;
     }
     return true;
@@ -250,7 +251,7 @@ pub async fn delete_log(state: &AppState, log_uid: i64) -> bool {
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
         return false;
     }
     return true;
@@ -262,7 +263,7 @@ pub async fn delete_comment(state: &AppState, comment_uid: i64) -> bool {
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
         return false;
     }
     return true;
@@ -277,7 +278,7 @@ pub async fn update_user_displayname(state: &AppState, user_uid: i64, new_displa
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
         return false;
     }
     return true;
@@ -290,7 +291,7 @@ pub async fn update_user_email(state: &AppState, user_uid: i64, new_email: &str)
         .execute(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
         return false;
     }
     return true;
@@ -351,7 +352,7 @@ pub async fn get_user(state: &AppState, user_id: i64) -> Option<User> {
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return result.unwrap_or(None);
 }
@@ -364,7 +365,7 @@ pub async fn get_user_by_username(state: &AppState, username: &str) -> Option<Us
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &result {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return result.unwrap_or(None);
 }
@@ -376,7 +377,7 @@ pub async fn get_all_users(state: &AppState) -> Vec<User> {
         .fetch_all(&state.db)
         .await;
     if let Err(e) = &users {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return users.unwrap_or(vec![]);
 }
@@ -389,7 +390,7 @@ pub async fn get_project(state: &AppState, project_id: i64) -> Option<Project> {
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &project {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return project.unwrap_or(None);
 }
@@ -400,7 +401,7 @@ pub async fn get_user_projects(state: &AppState, user_id: i64) -> Vec<Project> {
         .fetch_all(&state.db)
         .await;
     if let Err(e) = &projects {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return projects.unwrap_or(vec![]);
 }
@@ -412,7 +413,7 @@ pub async fn get_project_by_slug(state: &AppState, user_id: i64, project_slug: &
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &project {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return project.unwrap_or(None);
 }
@@ -425,7 +426,7 @@ pub async fn get_project_logs(state: &AppState, project_id: i64) -> Vec<LogEntry
         .fetch_all(&state.db)
         .await;
     if let Err(e) = &logs {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return logs.unwrap_or(vec![]);
 }
@@ -437,7 +438,7 @@ pub async fn get_log_by_number(state: &AppState, project_id: i64, log_number: i6
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &log {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
 }
@@ -456,7 +457,7 @@ pub async fn get_last_log(state: &AppState, user_uid: i64) -> Option<LogEntry> {
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &log {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
 }
@@ -469,7 +470,7 @@ pub async fn get_last_project_log_by_slug(state: &AppState, user_uid: i64, proje
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &log {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
 }
@@ -480,7 +481,7 @@ pub async fn _get_last_project_log(state: &AppState, project_uid: i64) -> Option
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &log {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return log.unwrap_or(None);
 }
@@ -504,7 +505,7 @@ pub async fn get_comments_for_log(state: &AppState, log_uid: i64) -> Vec<Comment
     .fetch_all(&state.db)
     .await;
     if let Err(e) = &comments {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return comments.unwrap_or(vec![]);
 }
@@ -528,7 +529,7 @@ pub async fn get_comment_by_uid(state: &AppState, comment_uid: i64) -> Option<Co
     .fetch_one(&state.db)
     .await;
     if let Err(e) = &comment {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return comment.ok();
 }
@@ -553,7 +554,7 @@ pub async fn get_log_likes(state: &AppState, log_uid: i64) -> Likes {
         .fetch_one(&state.db)
         .await;
     if let Err(e) = &likes {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return likes.unwrap_or_default();
 }
@@ -570,7 +571,7 @@ pub async fn get_project_likes(state: &AppState, project_uid: i64) -> Likes {
         .fetch_one(&state.db)
         .await;
     if let Err(e) = &likes {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return likes.unwrap_or_default();
 }
@@ -587,7 +588,7 @@ pub async fn get_user_likes(state: &AppState, user_profile_uid: i64) -> Likes {
         .fetch_one(&state.db)
         .await;
     if let Err(e) = &likes {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return likes.unwrap_or_default();
 }
@@ -605,7 +606,7 @@ pub async fn get_log_like(state: &AppState, user_uid: i64, log_uid: i64) -> Opti
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &like {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return like.unwrap_or(None);
 }
@@ -648,7 +649,7 @@ pub async fn get_project_like(state: &AppState, user_uid: i64, project_uid: i64)
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &like {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return like.unwrap_or(None);
 }
@@ -691,7 +692,7 @@ pub async fn get_user_like(state: &AppState, user_uid: i64, user_profile_uid: i6
         .fetch_optional(&state.db)
         .await;
     if let Err(e) = &like {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return like.unwrap_or(None);
 }
@@ -897,7 +898,7 @@ pub async fn get_all_user_emails_whose_logsday_is_today(state: &AppState) -> Vec
         .fetch_all(&state.db)
         .await;
     if let Err(e) = &users {
-        println!("DB ERROR: {}", e);
+        error!("DB ERROR: {}", e);
     }
     return users.unwrap_or(vec![]);
 }
