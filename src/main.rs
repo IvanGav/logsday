@@ -28,6 +28,8 @@ mod password;
 mod email;
 
 const WEEKDAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MAX_NAME_LENGTH: usize = 50;
+const MAX_PASSWORD_LENGTH: usize = 255;
 
 macro_rules! get_or {
     ($expr:expr, $fallback:expr) => {
@@ -370,7 +372,7 @@ async fn post_signup(
     let displayname = form.displayname.trim();
     if displayname.is_empty() { return "empty displayname".into_response(); }
     let username = if form.username.trim().is_empty() { slug::slug_from(&displayname) } else { form.username };
-    if displayname.len() > 255 || username.len() > 255 || form.password.len() > 255 { return "displayname, username or password are too long".into_response(); }
+    if displayname.len() > MAX_NAME_LENGTH || username.len() > MAX_NAME_LENGTH || form.password.len() > MAX_PASSWORD_LENGTH { return "displayname, username or password are too long".into_response(); }
     if !slug::slug_valid(&username) {
         return "invalid username".into_response();
     }
@@ -582,7 +584,7 @@ struct NewProjectRequest {
 #[instrument(skip(state, data))]
 async fn post_new_project(State(state): State<AppState>, AuthdUser(user, _tz): AuthdUser, data: TypedMultipart<NewProjectRequest>) -> impl IntoResponse {
     let pslug: &str = if data.slug.len() == 0 { &slug::slug_from(&data.title) } else { &data.slug };
-    if data.title.len() > 255 || pslug.len() > 255 { return "title or slug too long".into_response(); }
+    if data.title.len() > MAX_NAME_LENGTH || pslug.len() > MAX_NAME_LENGTH { return "title or slug too long".into_response(); }
     if data.title.len() == 0 || pslug.len() == 0 { return "title or slug is empty".into_response(); }
     if data.description.len() > 65535 { return "description too long".into_response(); }
     let thumbnail = if data.thumbnail.contents.len() == 0 { &fs::read("static/favicon.ico").unwrap()[..] } else { &data.thumbnail.contents[..] };
@@ -645,7 +647,7 @@ struct NewLogRequest {
 #[instrument(skip(state, form))]
 async fn post_new_log(AuthdUser(user, tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
     if user.username != username { return "can't create log for a different user".into_response(); }
-    if form.title.len() > 255 { return "title too long".into_response(); }
+    if form.title.len() > MAX_NAME_LENGTH { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
     match newlog::newlog_num(&state, &user, &project_slug, tz).await {
         NewlogResult::New(project, log_number) => {
@@ -710,7 +712,7 @@ async fn get_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppSt
 #[instrument(skip(state, form))]
 async fn post_edit_log(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug, log_num)): Path<(String, String, i64)>, Form(form): Form<NewLogRequest>,) -> impl IntoResponse {
     if user.username != username { return "can't edit log for a different user".into_response(); }
-    if form.title.len() > 255 { return "title too long".into_response(); }
+    if form.title.len() > MAX_NAME_LENGTH { return "title too long".into_response(); }
     if form.content.as_bytes().len() > 1024 * 1024 { return "why do you have 1MB of text..?".into_response(); }
     let log = get_or!(db::get_log_uuid_pslug_lslug(&state, user.uid, &project_slug, log_num).await, "Log does not exist");
     let log_path = format!("uploads/users/{}/{}/{}", &user.username, &project_slug, &log_num);
@@ -1038,7 +1040,9 @@ struct ChangeDisplaynameSubmission {
     displayname: String,
 }
 
+#[instrument(skip_all)]
 async fn post_update_displayname(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
+    if form.displayname.len() > MAX_NAME_LENGTH { warn!("length abuse by {}", user.username); return (StatusCode::BAD_REQUEST, "make it shorter").into_response(); }
     if !db::update_user_displayname(&state, user.uid, &form.displayname).await {
         return "Database failure".into_response();
     }
@@ -1221,6 +1225,7 @@ struct FormUpdateTitle {
 #[instrument(skip(state))]
 async fn post_update_project_title(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateTitle>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
+    if form.title.len() > MAX_NAME_LENGTH { warn!("length abuse by {username}"); return "make it shorter".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
     if let Err(e) = db::update_project_title(&state, project.uid, &form.title).await { error!("{e}"); return "Database error".into_response(); }
     return hx_refresh().into_response();
