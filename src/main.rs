@@ -1042,6 +1042,7 @@ struct ChangeDisplaynameSubmission {
 
 #[instrument(skip_all)]
 async fn post_update_displayname(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Form(form): Form<ChangeDisplaynameSubmission>) -> impl IntoResponse {
+    if form.displayname.len() == 0 { return (StatusCode::BAD_REQUEST, "must be non empty").into_response(); }
     if form.displayname.len() > MAX_NAME_LENGTH { warn!("length abuse by {}", user.username); return (StatusCode::BAD_REQUEST, "make it shorter").into_response(); }
     if !db::update_user_displayname(&state, user.uid, &form.displayname).await {
         return "Database failure".into_response();
@@ -1225,6 +1226,7 @@ struct FormUpdateTitle {
 #[instrument(skip(state))]
 async fn post_update_project_title(AuthdUser(user, _tz): AuthdUser, State(state): State<AppState>, Path((username, project_slug)): Path<(String, String)>, Form(form): Form<FormUpdateTitle>) -> impl IntoResponse {
     if user.username != username { return "Can only update your own projects.".into_response(); }
+    if form.title.len() == 0 { return "must be non empty".into_response(); }
     if form.title.len() > MAX_NAME_LENGTH { warn!("length abuse by {username}"); return "make it shorter".into_response(); }
     let project = get_or!(db::get_project_by_slug(&state, user.uid, &project_slug).await, "Could not find project");
     if let Err(e) = db::update_project_title(&state, project.uid, &form.title).await { error!("{e}"); return "Database error".into_response(); }
